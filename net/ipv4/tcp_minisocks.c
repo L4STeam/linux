@@ -392,6 +392,7 @@ static void tcp_ecn_openreq_child(struct tcp_sock *tp,
 				  const struct request_sock *req)
 {
 	tp->ecn_flags = inet_rsk(req)->ecn_ok ? TCP_ECN_OK : 0;
+	tp->ecn_flags |= inet_rsk(req)->accecn_ok ? TCP_ACCECN_OK : 0;
 }
 
 void tcp_ca_openreq_child(struct sock *sk, const struct dst_entry *dst)

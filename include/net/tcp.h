@@ -357,10 +357,16 @@ static inline void tcp_dec_quickack_mode(struct sock *sk,
 	}
 }
 
-#define	TCP_ECN_OK		1
-#define	TCP_ECN_QUEUE_CWR	2
-#define	TCP_ECN_DEMAND_CWR	4
-#define	TCP_ECN_SEEN		8
+#define	TCP_ECN_OK			0x01
+#define	TCP_ECN_QUEUE_CWR	0x02
+#define	TCP_ECN_DEMAND_CWR	0x04 /*reused by AccECN to demand option */
+#define	TCP_ECN_SEEN		0x08
+
+#define	TCP_ACCECN_OK		0x10 /*AccECN successfully negotiated with other end */
+#define	TCP_ACCECN_CE		0x20 /*Last packet was CE marked*/
+#define	TCP_ACCECN_ECT0		0x40 /*Last packet was ECT(0) marked*/
+#define TCP_ACCECN_ECT1		0x80 /*Last packet was ECT(1) marked*/
+#define TCP_ACCECN_OPT		0x100 /*Next ACK should carry AccECN option */
 
 enum tcp_tw_status {
 	TCP_TW_SUCCESS = 0,
@@ -749,6 +755,9 @@ static inline u32 tcp_skb_timestamp(const struct sk_buff *skb)
 #define TCPHDR_CWR 0x80
 
 #define TCPHDR_SYN_ECN	(TCPHDR_SYN | TCPHDR_ECE | TCPHDR_CWR)
+#define TCPHDR_SYNACK_ACCECN	(TCPHDR_SYN | TCPHDR_ACK | TCPHDR_CWR)
+
+#define TCPHDR_NS  0x01
 
 /* This is what the send packet queuing engine uses to pass
  * TCP per-packet control information to the transmission code.
@@ -773,6 +782,7 @@ struct tcp_skb_cb {
 		};
 	};
 	__u8		tcp_flags;	/* TCP header flags. (tcp[13])	*/
+	__u8		tcp_flags2;	/* TCP header flags. (tcp[12])	*/
 
 	__u8		sacked;		/* State flags for SACK.	*/
 #define TCPCB_SACKED_ACKED	0x01	/* SKB ACK'd by a SACK block	*/

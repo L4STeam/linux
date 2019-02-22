@@ -276,6 +276,18 @@ bool cookie_ecn_ok(const struct tcp_options_received *tcp_opt,
 }
 EXPORT_SYMBOL(cookie_ecn_ok);
 
+int cookie_check_accecn(struct tcp_sock *tp, const struct tcphdr *th)
+{
+	if (th->ns && th->cwr) {
+		tp->rcv_cep = 6;
+		tp->rcv_ceb = 0;
+		tp->rcv_e0b = 1;
+		tp->rcv_e1b = 0;
+		return true;
+	}
+	return false;
+}
+
 /* On input, sk is a listener.
  * Output is listener if incoming packet would not create a child
  *           NULL if memory could not be allocated.
@@ -315,6 +327,9 @@ struct sock *cookie_v4_check(struct sock *sk, struct sk_buff *skb)
 	memset(&tcp_opt, 0, sizeof(tcp_opt));
 	tcp_parse_options(sock_net(sk), skb, &tcp_opt, 0, NULL);
 
+	if (tcp_opt.saw_accecn)
+		tcp_opt.accecn_ok = 1;
+
 	if (tcp_opt.saw_tstamp && tcp_opt.rcv_tsecr) {
 		tsoff = secure_tcp_ts_off(sock_net(sk),
 					  ip_hdr(skb)->daddr,
@@ -342,6 +357,7 @@ struct sock *cookie_v4_check(struct sock *sk, struct sk_buff *skb)
 	sk_rcv_saddr_set(req_to_sk(req), ip_hdr(skb)->daddr);
 	sk_daddr_set(req_to_sk(req), ip_hdr(skb)->saddr);
 	ireq->ir_mark		= inet_request_mark(sk, skb);
+	ireq->accecn_ok		= cookie_check_accecn(tp, th);
 	ireq->snd_wscale	= tcp_opt.snd_wscale;
 	ireq->sack_ok		= tcp_opt.sack_ok;
 	ireq->wscale_ok		= tcp_opt.wscale_ok;

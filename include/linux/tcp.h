@@ -104,6 +104,11 @@ struct tcp_options_received {
 	u8	num_sacks;	/* Number of SACK blocks		*/
 	u16	user_mss;	/* mss requested by user in ioctl	*/
 	u16	mss_clamp;	/* Maximal mss, negotiated at connection setup */
+	u8  accecn_ok : 1, /* AccECN option seen on SYN/ACK or first ACC */
+	    saw_accecn : 1; /* AccECN seen on last packet */
+	u32 rcv_eceb;  /* AccECN CE-bytes counter echo received */
+	u32 rcv_ee0b;  /* AccECN ECT(0)-bytes counter echo received */
+	u32 rcv_ee1b;  /* AccECN ECT(1)-bytes counter echo received */
 };
 
 static inline void tcp_clear_options(struct tcp_options_received *rx_opt)
@@ -258,6 +263,16 @@ struct tcp_sock {
 
 	u16	urg_data;	/* Saved octet of OOB data and control flags */
 	u8	ecn_flags;	/* ECN status bits.			*/
+	u16	ecn_flags;	/* ECN status bits.			*/
+	u32 	snd_cep; 	/* CE packet counter (cep) at sender */
+	u32 	snd_ceb; 	/* CE byte counter (ceb) at sender */
+	u32 	snd_e0b; 	/* ECT(0) byte counter (e0b) at sender */
+	u32 	snd_e1b; 	/* ECT(1) byte counter (e1b) at sender */
+	u32 	rcv_cep; 	/* CE packet counter (cep) at receiver */
+	u32 	rcv_ceb; 	/* CE byte counter (ceb) at receiver */
+	u32 	rcv_e0b; 	/* ECT(0) byte counter (e0b) at receiver */
+	u32 	rcv_e1b; 	/* ECT(1) byte counter (e1b) at receiver */
+	u32 	accecn_opt_last_sent; /* number of packets sent since last AccECN Option */
 	u8	keepalive_probes; /* num of allowed keep alive probes	*/
 	u32	reordering;	/* Packet reordering metric.		*/
 	u32	snd_up;		/* Urgent pointer		*/
