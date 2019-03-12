@@ -311,7 +311,7 @@ static void tcp_ecn_send_synack(struct sock *sk, struct sk_buff *skb)
 		TCP_SKB_CB(skb)->tcp_flags &= ~TCPHDR_ECE;
 	else if (tcp_ca_needs_ecn(sk) ||
 		 tcp_bpf_ca_needs_ecn(sk))
-		INET_ECN_xmit(sk);
+		__INET_ECN_xmit(sk, tcp_ca_wants_ect_1(sk));
 	/* Check if we want to negotiate AccECN */
 	if (tcp_ecn_status(tp) == TCP_ACCECN_PENDING) {
 		int ect = tcp_accecn_rcv_ect(tp);
