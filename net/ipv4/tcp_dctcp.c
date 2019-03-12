@@ -62,6 +62,11 @@ static unsigned int dctcp_alpha_on_init __read_mostly = DCTCP_MAX_ALPHA;
 module_param(dctcp_alpha_on_init, uint, 0644);
 MODULE_PARM_DESC(dctcp_alpha_on_init, "parameter for initial alpha value");
 
+static int dctcp_ect __read_mostly = 0;
+MODULE_PARM_DESC(dctcp_ect, "send packet with ECT(dctcp_ect)");
+/* We currently do not allow this to change through sysfs */
+module_param(dctcp_ect, int, 0444);
+
 static struct tcp_congestion_ops dctcp_reno;
 
 static void dctcp_reset(const struct tcp_sock *tp, struct dctcp *ca)
@@ -213,8 +218,14 @@ static u32 dctcp_cwnd_undo(struct sock *sk)
 	return max(tcp_sk(sk)->snd_cwnd, ca->loss_cwnd);
 }
 
+static void dctcp_release(struct sock *sk)
+{
+	tcp_sk(sk)->ecn_flags &= ~TCP_ECN_ECT_1;
+}
+
 static struct tcp_congestion_ops dctcp __read_mostly = {
 	.init		= dctcp_init,
+	.release	= dctcp_release,
 	.in_ack_event   = dctcp_update_alpha,
 	.cwnd_event	= dctcp_cwnd_event,
 	.ssthresh	= dctcp_ssthresh,
@@ -239,6 +250,8 @@ static struct tcp_congestion_ops dctcp_reno __read_mostly = {
 static int __init dctcp_register(void)
 {
 	BUILD_BUG_ON(sizeof(struct dctcp) > ICSK_CA_PRIV_SIZE);
+	if (dctcp_ect)
+		dctcp.flags |= TCP_CONG_WANTS_ECT_1;
 	return tcp_register_congestion_control(&dctcp);
 }
 

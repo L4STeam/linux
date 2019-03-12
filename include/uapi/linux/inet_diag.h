@@ -73,7 +73,7 @@ enum {
  * to offset cc+"yes" or to offset cc+"no". "yes" is supposed to be
  * length of the command and its arguments.
  */
- 
+
 struct inet_diag_bc_op {
 	unsigned char	code;
 	unsigned char	yes;
@@ -154,6 +154,7 @@ enum {
 	INET_DIAG_CLASS_ID,	/* request as INET_DIAG_TCLASS */
 	INET_DIAG_MD5SIG,
 	INET_DIAG_ULP_INFO,
+	INET_DIAG_PRAGUEINFO,
 	__INET_DIAG_MAX,
 };
 
@@ -206,9 +207,18 @@ struct tcp_bbr_info {
 	__u32	bbr_cwnd_gain;		/* cwnd gain shifted left 8 bits */
 };
 
+/* INET_DIAG_PRAGUEINFO */
+
+struct tcp_prague_info {
+	__u32	prague_alpha;
+	__u32	prague_ab_ecn;
+	__u32	prague_ab_tot;
+};
+
 union tcp_cc_info {
 	struct tcpvegas_info	vegas;
 	struct tcp_dctcp_info	dctcp;
+	struct tcp_prague_info	prague;
 	struct tcp_bbr_info	bbr;
 };
 #endif /* _UAPI_INET_DIAG_H_ */
