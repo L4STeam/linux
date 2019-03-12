@@ -363,6 +363,7 @@ static inline void tcp_dec_quickack_mode(struct sock *sk,
 #define	TCP_ECN_DEMAND_CWR	0x04
 #define	TCP_ECN_SEEN		0x08
 #define	TCP_ACCECN_OK		0x10
+#define	TCP_ECN_ECT_1		0x20	/* Use ECT(1) instead of ECT(0) */
 
 enum tcp_tw_status {
 	TCP_TW_SUCCESS = 0,
@@ -1008,6 +1009,8 @@ enum tcp_ca_ack_event_flags {
 #define TCP_CONG_NON_RESTRICTED 0x1
 /* Requires ECN/ECT set on all packets */
 #define TCP_CONG_NEEDS_ECN	0x2
+/* Requires ECT(1) set on all packets */
+#define TCP_CONG_WANTS_ECT_1	0x4
 
 union tcp_cc_info;
 
@@ -1118,6 +1121,13 @@ static inline bool tcp_ca_needs_ecn(const struct sock *sk)
 	const struct inet_connection_sock *icsk = inet_csk(sk);
 
 	return icsk->icsk_ca_ops->flags & TCP_CONG_NEEDS_ECN;
+}
+
+static inline bool tcp_ca_wants_ect_1(const struct sock *sk)
+{
+	const struct inet_connection_sock *icsk = inet_csk(sk);
+
+	return icsk->icsk_ca_ops->flags & TCP_CONG_WANTS_ECT_1;
 }
 
 static inline void tcp_set_ca_state(struct sock *sk, const u8 ca_state)
