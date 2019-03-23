@@ -358,10 +358,11 @@ static inline void tcp_dec_quickack_mode(struct sock *sk,
 	}
 }
 
-#define	TCP_ECN_OK		1
-#define	TCP_ECN_QUEUE_CWR	2
-#define	TCP_ECN_DEMAND_CWR	4
-#define	TCP_ECN_SEEN		8
+#define	TCP_ECN_OK		0x01
+#define	TCP_ECN_QUEUE_CWR	0x02
+#define	TCP_ECN_DEMAND_CWR	0x04
+#define	TCP_ECN_SEEN		0x08
+#define	TCP_ACCECN_OK		0x10
 
 enum tcp_tw_status {
 	TCP_TW_SUCCESS = 0,
@@ -542,6 +543,7 @@ bool cookie_timestamp_decode(const struct net *net,
 			     struct tcp_options_received *opt);
 bool cookie_ecn_ok(const struct tcp_options_received *opt,
 		   const struct net *net, const struct dst_entry *dst);
+bool cookie_accecn_ok(const struct tcphdr *th);
 
 /* From net/ipv6/syncookies.c */
 int __cookie_v6_check(const struct ipv6hdr *iph, const struct tcphdr *th,
@@ -782,6 +784,7 @@ static inline u64 tcp_skb_timestamp_us(const struct sk_buff *skb)
 }
 
 
+#define tcp_res_flag_byte(th) (((u_int8_t *)th)[12])
 #define tcp_flag_byte(th) (((u_int8_t *)th)[13])
 
 #define TCPHDR_FIN 0x01
@@ -792,13 +795,15 @@ static inline u64 tcp_skb_timestamp_us(const struct sk_buff *skb)
 #define TCPHDR_URG 0x20
 #define TCPHDR_ECE 0x40
 #define TCPHDR_CWR 0x80
+#define TCPHDR_AE 0x01
 
-#define TCPHDR_SYN_ECN	(TCPHDR_SYN | TCPHDR_ECE | TCPHDR_CWR)
+#define TCPHDR_SYN_ECN (TCPHDR_SYN | TCPHDR_ECE | TCPHDR_CWR)
+#define TCPHDR_SYNACK_ACCECN (TCPHDR_SYN | TCPHDR_ACK | TCPHDR_CWR)
 
 /* This is what the send packet queuing engine uses to pass
  * TCP per-packet control information to the transmission code.
  * We also store the host-order sequence numbers in here too.
- * This is 44 bytes if IPV6 is enabled.
+ * This is 45 bytes.
  * If this grows please adjust skbuff.h:skbuff->cb[xxx] size appropriately.
  */
 struct tcp_skb_cb {
@@ -817,6 +822,7 @@ struct tcp_skb_cb {
 			u16	tcp_gso_size;
 		};
 	};
+	__u8		tcp_res_flags;	/* TCP reserved flags. (tcp[12]) */
 	__u8		tcp_flags;	/* TCP header flags. (tcp[13])	*/
 
 	__u8		sacked;		/* State flags for SACK.	*/
@@ -863,6 +869,13 @@ struct tcp_skb_cb {
 };
 
 #define TCP_SKB_CB(__skb)	((struct tcp_skb_cb *)&((__skb)->cb[0]))
+
+static inline u8 tcp_accecn_skb_cb_ace(const struct sk_buff *skb)
+{
+	return (TCP_SKB_CB(skb)->tcp_res_flags & TCPHDR_AE) << 2
+		| ((TCP_SKB_CB(skb)->tcp_flags
+		    & (TCPHDR_ECE | TCPHDR_CWR)) >> 6);
+}
 
 static inline void bpf_compute_data_end_sk_skb(struct sk_buff *skb)
 {
@@ -2282,6 +2295,16 @@ static inline u64 tcp_transmit_time(const struct sock *sk)
 		return tcp_clock_ns() + (u64)delay * NSEC_PER_USEC;
 	}
 	return 0;
+}
+
+/* See draft-ietf-tcpm-accurate-ecn for the latest values */
+#define TCP_ACCECN_CEP_INIT 5
+
+/* To avoid/detect middlebox interference, not all counters start at 0 */
+static inline void tcp_accecn_init_counters(struct tcp_sock *tp)
+{
+    tp->delivered_ce = TCP_ACCECN_CEP_INIT;
+    tp->received_ce = TCP_ACCECN_CEP_INIT;
 }
 
 #endif	/* _TCP_H */

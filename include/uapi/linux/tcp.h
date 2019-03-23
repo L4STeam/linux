@@ -28,7 +28,8 @@ struct tcphdr {
 	__be32	seq;
 	__be32	ack_seq;
 #if defined(__LITTLE_ENDIAN_BITFIELD)
-	__u16	res1:4,
+	__u16	ae:1,
+		res1:3,
 		doff:4,
 		fin:1,
 		syn:1,
@@ -40,7 +41,8 @@ struct tcphdr {
 		cwr:1;
 #elif defined(__BIG_ENDIAN_BITFIELD)
 	__u16	doff:4,
-		res1:4,
+		res1:3,
+		ae:1,
 		cwr:1,
 		ece:1,
 		urg:1,
@@ -51,7 +53,7 @@ struct tcphdr {
 		fin:1;
 #else
 #error	"Adjust your <asm/byteorder.h> defines"
-#endif	
+#endif
 	__be16	window;
 	__sum16	check;
 	__be16	urg_ptr;
@@ -62,14 +64,15 @@ struct tcphdr {
  *  (union is compatible to any of its members)
  *  This means this part of the code is -fstrict-aliasing safe now.
  */
-union tcp_word_hdr { 
+union tcp_word_hdr {
 	struct tcphdr hdr;
 	__be32 		  words[5];
-}; 
+};
 
-#define tcp_flag_word(tp) ( ((union tcp_word_hdr *)(tp))->words [3]) 
+#define tcp_flag_word(tp) ( ((union tcp_word_hdr *)(tp))->words [3])
 
-enum { 
+enum {
+	TCP_FLAG_AE = __constant_cpu_to_be32(0x01000000),
 	TCP_FLAG_CWR = __constant_cpu_to_be32(0x00800000),
 	TCP_FLAG_ECE = __constant_cpu_to_be32(0x00400000),
 	TCP_FLAG_URG = __constant_cpu_to_be32(0x00200000),
@@ -80,7 +83,7 @@ enum {
 	TCP_FLAG_FIN = __constant_cpu_to_be32(0x00010000),
 	TCP_RESERVED_BITS = __constant_cpu_to_be32(0x0F000000),
 	TCP_DATA_OFFSET = __constant_cpu_to_be32(0xF0000000)
-}; 
+};
 
 /*
  * TCP general constants

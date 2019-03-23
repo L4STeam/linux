@@ -398,9 +398,17 @@ void tcp_openreq_init_rwin(struct request_sock *req,
 EXPORT_SYMBOL(tcp_openreq_init_rwin);
 
 static void tcp_ecn_openreq_child(struct tcp_sock *tp,
-				  const struct request_sock *req)
+				  const struct request_sock *req,
+				  const struct sk_buff *skb)
 {
-	tp->ecn_flags = inet_rsk(req)->ecn_ok ? TCP_ECN_OK : 0;
+	struct inet_request_sock *irsk = inet_rsk(req);
+
+	tp->ecn_flags = irsk->ecn_ok ? TCP_ECN_OK : 0;
+	if (irsk->accecn_ok && tcp_accecn_skb_cb_ace(skb) > 1) {
+		tp->ecn_flags |= TCP_ACCECN_OK;
+		tcp_accecn_init_counters(tp);
+		tp->received_ce += req->ce_marked;
+	}
 }
 
 void tcp_ca_openreq_child(struct sock *sk, const struct dst_entry *dst)
@@ -544,7 +552,7 @@ struct sock *tcp_create_openreq_child(const struct sock *sk,
 	if (skb->len >= TCP_MSS_DEFAULT + newtp->tcp_header_len)
 		newicsk->icsk_ack.last_seg_size = skb->len - newtp->tcp_header_len;
 	newtp->rx_opt.mss_clamp = req->mss;
-	tcp_ecn_openreq_child(newtp, req);
+	tcp_ecn_openreq_child(newtp, req, skb);
 	newtp->fastopen_req = NULL;
 	RCU_INIT_POINTER(newtp->fastopen_rsk, NULL);
 

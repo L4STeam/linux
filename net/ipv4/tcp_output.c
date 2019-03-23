@@ -312,6 +312,13 @@ static void tcp_ecn_send_synack(struct sock *sk, struct sk_buff *skb)
 	else if (tcp_ca_needs_ecn(sk) ||
 		 tcp_bpf_ca_needs_ecn(sk))
 		INET_ECN_xmit(sk);
+	/* Check if we want to negotiate AccECN */
+	if (tp->ecn_flags & TCP_ACCECN_OK) {
+		TCP_SKB_CB(skb)->tcp_flags &= ~TCPHDR_ECE;
+		TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_CWR;
+		/* TODO(otilmans) We should feed back here the real ECT state */
+		TCP_SKB_CB(skb)->tcp_res_flags |= TCPHDR_AE;
+	}
 }
 
 /* Packet ECN state for a SYN.  */
@@ -320,6 +327,7 @@ static void tcp_ecn_send_syn(struct sock *sk, struct sk_buff *skb)
 	struct tcp_sock *tp = tcp_sk(sk);
 	bool bpf_needs_ecn = tcp_bpf_ca_needs_ecn(sk);
 	bool use_ecn = sock_net(sk)->ipv4.sysctl_tcp_ecn == 1 ||
+		sock_net(sk)->ipv4.sysctl_tcp_ecn == 4 ||
 		tcp_ca_needs_ecn(sk) || bpf_needs_ecn;
 
 	if (!use_ecn) {
@@ -334,6 +342,11 @@ static void tcp_ecn_send_syn(struct sock *sk, struct sk_buff *skb)
 	if (use_ecn) {
 		TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_ECE | TCPHDR_CWR;
 		tp->ecn_flags = TCP_ECN_OK;
+		if (sock_net(sk)->ipv4.sysctl_tcp_ecn == 4) {
+			/* Request AccECN */
+			TCP_SKB_CB(skb)->tcp_res_flags |= TCPHDR_AE;
+			tp->ecn_flags |= TCP_ACCECN_OK;
+		}
 		if (tcp_ca_needs_ecn(sk) || bpf_needs_ecn)
 			INET_ECN_xmit(sk);
 	}
@@ -341,17 +354,23 @@ static void tcp_ecn_send_syn(struct sock *sk, struct sk_buff *skb)
 
 static void tcp_ecn_clear_syn(struct sock *sk, struct sk_buff *skb)
 {
-	if (sock_net(sk)->ipv4.sysctl_tcp_ecn_fallback)
+	if (sock_net(sk)->ipv4.sysctl_tcp_ecn_fallback) {
 		/* tp->ecn_flags are cleared at a later point in time when
 		 * SYN ACK is ultimatively being received.
 		 */
 		TCP_SKB_CB(skb)->tcp_flags &= ~(TCPHDR_ECE | TCPHDR_CWR);
+		TCP_SKB_CB(skb)->tcp_res_flags &= ~TCPHDR_AE;
+	}
 }
 
 static void
 tcp_ecn_make_synack(const struct request_sock *req, struct tcphdr *th)
 {
-	if (inet_rsk(req)->ecn_ok)
+	if (inet_rsk(req)->ecn_ok) {
+		th->ece = 0;
+		th->cwr = 1;
+		th->ae = req->ce_marked;
+	} else if (inet_rsk(req)->ecn_ok)
 		th->ece = 1;
 }
 
@@ -364,21 +383,32 @@ static void tcp_ecn_send(struct sock *sk, struct sk_buff *skb,
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	if (tp->ecn_flags & TCP_ECN_OK) {
-		/* Not-retransmitted data segment: set ECT and inject CWR. */
-		if (skb->len != tcp_header_len &&
-		    !before(TCP_SKB_CB(skb)->seq, tp->snd_nxt)) {
-			INET_ECN_xmit(sk);
-			if (tp->ecn_flags & TCP_ECN_QUEUE_CWR) {
-				tp->ecn_flags &= ~TCP_ECN_QUEUE_CWR;
-				th->cwr = 1;
-				skb_shinfo(skb)->gso_type |= SKB_GSO_TCP_ECN;
+		INET_ECN_xmit(sk);
+		if (tp->ecn_flags & TCP_ACCECN_OK) {
+			th->ece = tp->received_ce;
+			th->cwr = tp->received_ce >> 1;
+			th->ae = tp->received_ce >> 2;
+		} else {
+			/* Not-retransmitted data segment: set ECT and inject CWR. */
+			if (skb->len != tcp_header_len &&
+			    !before(TCP_SKB_CB(skb)->seq, tp->snd_nxt)) {
+				if (tp->ecn_flags & TCP_ECN_QUEUE_CWR) {
+					tp->ecn_flags &= ~TCP_ECN_QUEUE_CWR;
+					th->cwr = 1;
+					skb_shinfo(skb)->gso_type |= SKB_GSO_TCP_ECN;
+				}
+			} else if (!tcp_ca_needs_ecn(sk)) {
+				/* ACK or retransmitted segment: clear ECT|CE */
+				INET_ECN_dontxmit(sk);
 			}
-		} else if (!tcp_ca_needs_ecn(sk)) {
-			/* ACK or retransmitted segment: clear ECT|CE */
-			INET_ECN_dontxmit(sk);
+			if (tp->ecn_flags & TCP_ECN_DEMAND_CWR)
+				th->ece = 1;
+			if (sock_net(sk)->ipv4.sysctl_tcp_force_peer_unreliable_ece)
+				/* Trick the receiver into sending one ECE per
+				 * CE.
+				 */
+				th->cwr = 1;
 		}
-		if (tp->ecn_flags & TCP_ECN_DEMAND_CWR)
-			th->ece = 1;
 	}
 }
 
@@ -1102,6 +1132,7 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	th->seq			= htonl(tcb->seq);
 	th->ack_seq		= htonl(rcv_nxt);
 	*(((__be16 *)th) + 6)	= htons(((tcp_header_size >> 2) << 12) |
+					(tcb->tcp_res_flags & 0x0F) << 8 |
 					tcb->tcp_flags);
 
 	th->check		= 0;
@@ -2942,7 +2973,10 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
 			tcp_retrans_try_collapse(sk, skb, cur_mss);
 	}
 
-	/* RFC3168, section 6.1.1.1. ECN fallback */
+	/* RFC3168, section 6.1.1.1. ECN fallback
+	 * As AccECN uses the same SYN flags (+ AE), this check covers both
+	 * cases.
+	 */
 	if ((TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN_ECN) == TCPHDR_SYN_ECN)
 		tcp_ecn_clear_syn(sk, skb);
 
