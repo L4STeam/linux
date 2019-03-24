@@ -388,6 +388,7 @@ static void tcp_ecn_send(struct sock *sk, struct sk_buff *skb,
 			th->ece = tp->received_ce;
 			th->cwr = tp->received_ce >> 1;
 			th->ae = tp->received_ce >> 2;
+			skb_shinfo(skb)->gso_type |= SKB_GSO_TCP_ACCECN;
 		} else {
 			/* Not-retransmitted data segment: set ECT and inject CWR. */
 			if (skb->len != tcp_header_len &&
