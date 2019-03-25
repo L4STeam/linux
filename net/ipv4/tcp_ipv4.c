@@ -1725,6 +1725,9 @@ bool tcp_add_backlog(struct sock *sk, struct sk_buff *skb)
 		 */
 		thtail->fin |= th->fin;
 		TCP_SKB_CB(tail)->tcp_flags |= TCP_SKB_CB(skb)->tcp_flags;
+		TCP_SKB_CB(tail)->tcp_res_flags |= TCP_SKB_CB(skb)->tcp_res_flags;
+		if (tcp_sk(sk)->ecn_flags & TCP_ACCECN_OK)
+			tcp_accecn_copy_skb_cb_ace(tail, skb);
 
 		if (TCP_SKB_CB(skb)->has_rxtstamp) {
 			TCP_SKB_CB(tail)->has_rxtstamp = true;
@@ -2723,6 +2726,7 @@ static int __net_init tcp_sk_init(struct net *net)
 	spin_lock_init(&net->ipv4.tcp_fastopen_ctx_lock);
 	net->ipv4.sysctl_tcp_fastopen_blackhole_timeout = 60 * 60;
 	atomic_set(&net->ipv4.tfo_active_disable_times, 0);
+	net->ipv4.sysctl_tcp_force_peer_unreliable_ece = 0;
 
 	/* Reno is always built in */
 	if (!net_eq(net, &init_net) &&

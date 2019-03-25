@@ -247,13 +247,14 @@ static bool tcp_in_quickack_mode(struct sock *sk)
 
 static void tcp_ecn_queue_cwr(struct tcp_sock *tp)
 {
-	if (tp->ecn_flags & TCP_ECN_OK)
+	if (tp->ecn_flags & TCP_ECN_OK && !(tp->ecn_flags & TCP_ACCECN_OK))
 		tp->ecn_flags |= TCP_ECN_QUEUE_CWR;
 }
 
 static void tcp_ecn_accept_cwr(struct sock *sk, const struct sk_buff *skb)
 {
-	if (tcp_hdr(skb)->cwr) {
+	if (!(tcp_sk(sk)->ecn_flags & TCP_ACCECN_OK) &&
+	    tcp_hdr(skb)->cwr) {
 		tcp_sk(sk)->ecn_flags &= ~TCP_ECN_DEMAND_CWR;
 
 		/* If the sender is telling us it has entered CWR, then its
@@ -286,11 +287,17 @@ static void __tcp_ecn_check_ce(struct sock *sk, const struct sk_buff *skb)
 		if (tcp_ca_needs_ecn(sk))
 			tcp_ca_event(sk, CA_EVENT_ECN_IS_CE);
 
-		if (!(tp->ecn_flags & TCP_ECN_DEMAND_CWR)) {
+		if (tp->ecn_flags & TCP_ACCECN_OK) {
+			/* If we have yet to send previous ACE updates, force
+			 * an ACK as the delta is too large
+			 */
+			if (tp->received_ce - tp->received_ce_tx >=
+			    TCP_ACCECN_CEP_MAX_DELTA - 1)
+				inet_csk(sk)->icsk_ack.pending |= ICSK_ACK_NOW;
+		} else if (!(tp->ecn_flags & TCP_ECN_DEMAND_CWR)) {
 			/* Better not delay acks, sender can have a very low cwnd */
 			tcp_enter_quickack_mode(sk, 2);
-			if (!(tp->ecn_flags & TCP_ACCECN_OK))
-				tp->ecn_flags |= TCP_ECN_DEMAND_CWR;
+			tp->ecn_flags |= TCP_ECN_DEMAND_CWR;
 		}
 		tp->ecn_flags |= TCP_ECN_SEEN;
 		break;
@@ -323,25 +330,30 @@ static void tcp_ecn_check_ce(struct sock *sk, const struct sk_buff *skb)
 
 static void tcp_ecn_rcv_synack(struct tcp_sock *tp, const struct tcphdr *th)
 {
+	u8 ace = tcp_accecn_ace(th);
+
 	/* See Table 2 of the AccECN draft */
-	switch (tcp_accecn_ace(th)) {
+	switch (ace) {
 	case 0:
 	case 7:
-		if ((tp->ecn_flags & TCP_ECN_OK) && (!th->ece || th->cwr))
-			tp->ecn_flags &= ~TCP_ECN_OK;
-		/* Fallthrough */
 	case 5:
+		tp->ecn_flags &= ~TCP_ECN_OK;
+		/* Fallthrough as those values disables both ECN types */
 	case 1:
+		/* Only ECE set : this is a classic ECN receiver */
 		tp->ecn_flags &= ~TCP_ACCECN_OK;
 		break;
 	default:
+		if (!(tp->ecn_flags & TCP_ACCECN_OK))
+			/* Anything else than 1 is wrong for classic ECN */
+			tp->ecn_flags &= ~TCP_ECN_OK;
+		else {
+			tcp_accecn_init_counters(tp);
+			if (ace == 6)
+				tp->delivered_ce++;
+		}
 		break;
 
-	}
-	if (tp->ecn_flags & TCP_ACCECN_OK) {
-		tcp_accecn_init_counters(tp);
-		if (th->ae && th->cwr)
-			tp->delivered_ce++;
 	}
 }
 
@@ -354,22 +366,26 @@ static void tcp_ecn_rcv_syn(struct tcp_sock *tp, const struct tcphdr *th,
 		else if (INET_ECN_is_ce(TCP_SKB_CB(skb)->ip_dsfield
 					& INET_ECN_MASK))
 			tp->received_ce++;
+		tp->received_ce_tx = 0;
 	}
 	if ((tp->ecn_flags & TCP_ECN_OK) && (!th->ece || !th->cwr)
 	    && !(tp->ecn_flags & TCP_ACCECN_OK))
 		tp->ecn_flags &= ~TCP_ECN_OK;
 }
 
-static bool tcp_ecn_rcv_ecn_echo(const struct tcp_sock *tp,
-				 const struct tcphdr *th)
+static int tcp_ecn_rcv_ecn_echo(struct sock *sk, const struct tcphdr *th)
 {
-	if (th->ece && !th->syn && (tp->ecn_flags & TCP_ECN_OK))
-		return true;
-	if ((tp->ecn_flags & TCP_ACCECN_OK)
-	    /* An change in that counter implies some new CE marks */
-	    && tcp_accecn_ace(th) != (tp->delivered_ce & 3))
-		return true;
-	return false;
+	const struct tcp_sock *tp = tcp_sk(sk);
+
+	if (tp->ecn_flags & TCP_ACCECN_OK) {
+		if ((1 << sk->sk_state) & (TCPF_LISTEN | TCPF_SYN_RECV |
+					   TCPF_SYN_SENT | TCPF_NEW_SYN_RECV))
+			/* The counter is used to negociate during the 3WHS */
+			return 0;
+		return (tcp_accecn_ace(th) + 8 - (tp->delivered_ce & 7)) & 7;
+	} else if (th->ece && !th->syn && (tp->ecn_flags & TCP_ECN_OK))
+		return 1;
+	return 0;
 }
 
 /* Buffer size and advertised window tuning.
@@ -1388,6 +1404,9 @@ static bool tcp_shifted_skb(struct sock *sk, struct sk_buff *prev,
 	}
 
 	TCP_SKB_CB(prev)->tcp_flags |= TCP_SKB_CB(skb)->tcp_flags;
+	TCP_SKB_CB(prev)->tcp_res_flags |= TCP_SKB_CB(skb)->tcp_res_flags;
+	if (tp->ecn_flags & TCP_ACCECN_OK)
+		tcp_accecn_copy_skb_cb_ace(skb, prev);
 	TCP_SKB_CB(prev)->eor = TCP_SKB_CB(skb)->eor;
 	if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN)
 		TCP_SKB_CB(prev)->end_seq++;
@@ -3607,30 +3626,44 @@ static void tcp_xmit_recovery(struct sock *sk, int rexmit)
 }
 
 /* Returns the number of packets newly acked or sacked by the current ACK */
-static u32 tcp_newly_delivered(struct sock *sk, const struct sk_buff *skb,
-			       u32 prior_delivered, int flag)
+static u32 tcp_newly_delivered(struct sock *sk, u32 prior_delivered,
+			       u32 saw_ece, u8 flag)
 {
 	const struct net *net = sock_net(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
+	u32 delivered_ce = 0;
 	u32 delivered;
 
 	delivered = tp->delivered - prior_delivered;
 	NET_ADD_STATS(net, LINUX_MIB_TCPDELIVERED, delivered);
-	if (tp->ecn_flags & TCP_ACCECN_OK
-	    && (delivered > 0
-		|| tp->rx_opt.rcv_tsval > tp->rx_opt.ts_recent)) {
-		const u8 ace_div = 1 << 3;
-		const u8 ace_mask = ace_div - 1;
-		const u8 ace_val = tcp_accecn_skb_cb_ace(skb);
-		u8 increase = (ace_val + ace_div
-			       - (tp->delivered_ce & ace_mask)) & ace_mask;
-		tp->delivered_ce += increase;
-		NET_ADD_STATS(net, LINUX_MIB_TCPDELIVEREDCE, increase);
-	} else if (flag & FLAG_ECE) {
-		tp->delivered_ce += delivered;
-		NET_ADD_STATS(net, LINUX_MIB_TCPDELIVEREDCE, delivered);
+	if (saw_ece) {
+		if (tp->ecn_flags & TCP_ACCECN_OK) {
+			if ((flag & (FLAG_SND_UNA_ADVANCED | FLAG_NOT_DUP |
+				     FLAG_DATA_SACKED)) ||
+			    (tp->rx_opt.saw_tstamp &&
+			     tp->rx_opt.rcv_tsval >= tp->rx_opt.ts_recent))
+				delivered_ce = saw_ece;
+			else
+				goto end;
+		} else {
+			delivered_ce = delivered;
+		}
+		tp->delivered_ce += delivered_ce;
+		NET_ADD_STATS(net, LINUX_MIB_TCPDELIVEREDCE, delivered_ce);
 	}
+end:
 	return delivered;
+}
+
+static inline void tcp_ack_finish_slowpath(struct sock *sk, int flag)
+{
+	u32 ack_ev_flags = CA_ACK_SLOWPATH;
+
+	if (flag & FLAG_ECE)
+		ack_ev_flags |= CA_ACK_ECE;
+	if (flag & FLAG_WIN_UPDATE)
+		ack_ev_flags |= CA_ACK_WIN_UPDATE;
+	tcp_in_ack_event(sk, ack_ev_flags);
 }
 
 /* This routine deals with incoming acks, but not outgoing ones. */
@@ -3649,6 +3682,8 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 	u32 delivered = tp->delivered;
 	u32 lost = tp->lost;
 	int rexmit = REXMIT_NONE; /* Flag to (re)transmit to recover losses */
+	bool use_fast_path;
+	int saw_ece = 0; /* Did we receive ECE/an AccECN ACE update? */
 	u32 prior_fack;
 
 	sack_state.first_sackt = 0;
@@ -3696,8 +3731,9 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 	if (flag & FLAG_UPDATE_TS_RECENT)
 		tcp_replace_ts_recent(tp, TCP_SKB_CB(skb)->seq);
 
-	if ((flag & (FLAG_SLOWPATH | FLAG_SND_UNA_ADVANCED)) ==
-	    FLAG_SND_UNA_ADVANCED) {
+	use_fast_path = (flag & (FLAG_SLOWPATH | FLAG_SND_UNA_ADVANCED)) ==
+		FLAG_SND_UNA_ADVANCED;
+	if (use_fast_path) {
 		/* Window is constant, pure forward advance.
 		 * No more checks are required.
 		 * Note, we use the fact that SND.UNA>=SND.WL2.
@@ -3710,8 +3746,6 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 
 		NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPHPACKS);
 	} else {
-		u32 ack_ev_flags = CA_ACK_SLOWPATH;
-
 		if (ack_seq != TCP_SKB_CB(skb)->end_seq)
 			flag |= FLAG_DATA;
 		else
@@ -3722,16 +3756,9 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 		if (TCP_SKB_CB(skb)->sacked)
 			flag |= tcp_sacktag_write_queue(sk, skb, prior_snd_una,
 							&sack_state);
-
-		if (tcp_ecn_rcv_ecn_echo(tp, tcp_hdr(skb))) {
+		saw_ece = tcp_ecn_rcv_ecn_echo(sk, tcp_hdr(skb));
+		if (saw_ece > 0)
 			flag |= FLAG_ECE;
-			ack_ev_flags |= CA_ACK_ECE;
-		}
-
-		if (flag & FLAG_WIN_UPDATE)
-			ack_ev_flags |= CA_ACK_WIN_UPDATE;
-
-		tcp_in_ack_event(sk, ack_ev_flags);
 	}
 
 	/* We passed data and got it acked, remove any soft error
@@ -3768,7 +3795,10 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 	if ((flag & FLAG_FORWARD_PROGRESS) || !(flag & FLAG_NOT_DUP))
 		sk_dst_confirm(sk);
 
-	delivered = tcp_newly_delivered(sk, skb, delivered, flag);
+	delivered = tcp_newly_delivered(sk, delivered, saw_ece, flag);
+	if (!use_fast_path)
+		tcp_ack_finish_slowpath(sk, flag);
+
 	lost = tp->lost - lost;			/* freshly marked lost */
 	rs.is_ack_delayed = !!(flag & FLAG_ACK_MAYBE_DELAYED);
 	tcp_rate_gen(sk, delivered, lost, is_sack_reneg, sack_state.rate);
@@ -3781,7 +3811,9 @@ no_queue:
 	if (flag & FLAG_DSACKING_ACK) {
 		tcp_fastretrans_alert(sk, prior_snd_una, num_dupack, &flag,
 				      &rexmit);
-		tcp_newly_delivered(sk, skb, delivered, flag);
+		tcp_newly_delivered(sk, delivered, saw_ece, flag);
+		if (!use_fast_path)
+			tcp_ack_finish_slowpath(sk, flag);
 	}
 	/* If this ack opens up a zero window, clear backoff.  It was
 	 * being used to time the probes, and is probably far higher than
@@ -3802,7 +3834,7 @@ old_ack:
 						&sack_state);
 		tcp_fastretrans_alert(sk, prior_snd_una, num_dupack, &flag,
 				      &rexmit);
-		tcp_newly_delivered(sk, skb, delivered, flag);
+		tcp_newly_delivered(sk, delivered, saw_ece, flag);
 		tcp_xmit_recovery(sk, rexmit);
 	}
 
@@ -4491,6 +4523,9 @@ static bool tcp_try_coalesce(struct sock *sk,
 	TCP_SKB_CB(to)->end_seq = TCP_SKB_CB(from)->end_seq;
 	TCP_SKB_CB(to)->ack_seq = TCP_SKB_CB(from)->ack_seq;
 	TCP_SKB_CB(to)->tcp_flags |= TCP_SKB_CB(from)->tcp_flags;
+	TCP_SKB_CB(to)->tcp_res_flags |= TCP_SKB_CB(from)->tcp_res_flags;
+	if (tcp_sk(sk)->ecn_flags & TCP_ACCECN_OK)
+		tcp_accecn_copy_skb_cb_ace(from, to);
 
 	if (TCP_SKB_CB(from)->has_rxtstamp) {
 		TCP_SKB_CB(to)->has_rxtstamp = true;
@@ -5607,7 +5642,9 @@ void tcp_rcv_established(struct sock *sk, struct sk_buff *skb)
 	/* TCP congestion window tracking */
 	trace_tcp_probe(sk, skb);
 
-	tp->received_ce += INET_ECN_is_ce(TCP_SKB_CB(skb)->ip_dsfield);
+	/* AccECN ACE counter tracks *all* segments, including pure acks, ... */
+	if (INET_ECN_is_ce(TCP_SKB_CB(skb)->ip_dsfield))
+		++tp->received_ce;
 
 	tcp_mstamp_refresh(tp);
 	if (unlikely(!sk->sk_rx_dst))
@@ -6468,7 +6505,7 @@ static void tcp_ecn_create_request(struct request_sock *req,
 	bool ect, ecn_ok;
 	u32 ecn_ok_dst;
 
-	if (tcp_accecn_syn_requested(th) && net->ipv4.sysctl_tcp_ecn>=4) {
+	if (tcp_accecn_syn_requested(th) && net->ipv4.sysctl_tcp_ecn) {
 		inet_rsk(req)->ecn_ok = 1;
 		inet_rsk(req)->accecn_ok = 1;
 		if (INET_ECN_is_ce(TCP_SKB_CB(skb)->ip_dsfield))

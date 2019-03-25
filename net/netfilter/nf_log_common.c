@@ -83,7 +83,7 @@ int nf_log_dump_tcp_header(struct nf_log_buf *m, const struct sk_buff *skb,
 	nf_log_buf_add(m, "WINDOW=%u ", ntohs(th->window));
 	/* Max length: 9 "RES=0x3C " */
 	nf_log_buf_add(m, "RES=0x%02x ", (u_int8_t)(ntohl(tcp_flag_word(th) &
-					    TCP_RESERVED_BITS) >> 22));
+				(TCP_RESERVED_BITS | TCP_FLAG_AE)) >> 22));
 	/* Max length: 32 "CWR ECE URG ACK PSH RST SYN FIN " */
 	if (th->cwr)
 		nf_log_buf_add(m, "CWR ");

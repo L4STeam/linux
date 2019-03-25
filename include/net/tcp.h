@@ -661,9 +661,12 @@ static inline u32 __tcp_set_rto(const struct tcp_sock *tp)
 
 static inline void __tcp_fast_path_on(struct tcp_sock *tp, u32 snd_wnd)
 {
-	tp->pred_flags = htonl((tp->tcp_header_len << 26) |
-			       ntohl(TCP_FLAG_ACK) |
-			       snd_wnd);
+	tp->pred_flags = (tp->ecn_flags & TCP_ACCECN_OK) ?
+		htonl((tp->tcp_header_len << 26)
+		      | ((tp->delivered_ce & 7) << 22)
+		      | ntohl(TCP_FLAG_ACK) | snd_wnd) :
+		htonl((tp->tcp_header_len << 26)
+		      | ntohl(TCP_FLAG_ACK) | snd_wnd);
 }
 
 static inline void tcp_fast_path_on(struct tcp_sock *tp)
@@ -875,6 +878,18 @@ static inline u8 tcp_accecn_skb_cb_ace(const struct sk_buff *skb)
 	return (TCP_SKB_CB(skb)->tcp_res_flags & TCPHDR_AE) << 2
 		| ((TCP_SKB_CB(skb)->tcp_flags
 		    & (TCPHDR_ECE | TCPHDR_CWR)) >> 6);
+}
+
+static inline void tcp_accecn_copy_skb_cb_ace(const struct sk_buff *from,
+					    struct sk_buff *to)
+{
+	const u8 res_flags = TCP_SKB_CB(to)->tcp_res_flags & ~TCPHDR_AE;
+	const u8 flags = TCP_SKB_CB(to)->tcp_flags & ~(TCPHDR_ECE | TCPHDR_CWR);
+
+	TCP_SKB_CB(to)->tcp_res_flags = res_flags |
+		(TCP_SKB_CB(from)->tcp_res_flags & TCPHDR_AE);
+	TCP_SKB_CB(to)->tcp_flags = flags |
+		(TCP_SKB_CB(from)->tcp_flags & (TCPHDR_ECE | TCPHDR_CWR));
 }
 
 static inline void bpf_compute_data_end_sk_skb(struct sk_buff *skb)
@@ -2299,6 +2314,7 @@ static inline u64 tcp_transmit_time(const struct sock *sk)
 
 /* See draft-ietf-tcpm-accurate-ecn for the latest values */
 #define TCP_ACCECN_CEP_INIT 5
+#define TCP_ACCECN_CEP_MAX_DELTA 6
 
 /* To avoid/detect middlebox interference, not all counters start at 0 */
 static inline void tcp_accecn_init_counters(struct tcp_sock *tp)

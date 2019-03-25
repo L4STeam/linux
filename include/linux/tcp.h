@@ -494,4 +494,9 @@ static inline u8 tcp_accecn_ace(const struct tcphdr *th)
 	return (th->ae << 2) | (th->cwr << 1) | th->ece;
 }
 
+static inline bool tcp_force_peer_unreliable_ece(const struct sock *sk)
+{
+	return sock_net(sk)->ipv4.sysctl_tcp_force_peer_unreliable_ece != 0;
+}
+
 #endif	/* _LINUX_TCP_H */

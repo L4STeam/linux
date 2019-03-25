@@ -402,13 +402,17 @@ static void tcp_ecn_openreq_child(struct tcp_sock *tp,
 				  const struct sk_buff *skb)
 {
 	struct inet_request_sock *irsk = inet_rsk(req);
+	u8 ace = tcp_accecn_skb_cb_ace(skb);
 
 	tp->ecn_flags = irsk->ecn_ok ? TCP_ECN_OK : 0;
-	if (irsk->accecn_ok && tcp_accecn_skb_cb_ace(skb) > 1) {
+	if (irsk->accecn_ok &&  ace > 1) {
 		tp->ecn_flags |= TCP_ACCECN_OK;
 		tcp_accecn_init_counters(tp);
+		if (ace == 6)
+			tp->delivered_ce++;
 		tp->received_ce += req->ce_marked;
 	}
+	tp->received_ce_tx = 0;
 }
 
 void tcp_ca_openreq_child(struct sock *sk, const struct dst_entry *dst)
