@@ -301,8 +301,10 @@ tcp_ecn - INTEGER
 		0 Disable ECN.  Neither initiate nor accept ECN.
 		1 Enable ECN when requested by incoming connections and
 		  also request ECN on outgoing connection attempts.
-		2 Enable ECN when requested by incoming connections
+		2 Enable ECN or AccECN when requested by incoming connections
 		  but do not request ECN on outgoing connections.
+		3 Enable AccECN when requested by incoming connections and
+		  also request AccECN on outgoing connection attempts.
 	Default: 2
 
 tcp_ecn_fallback - BOOLEAN
@@ -313,6 +315,13 @@ tcp_ecn_fallback - BOOLEAN
 	knob. The value	is not used, if tcp_ecn or per route (or congestion
 	control) ECN settings are disabled.
 	Default: 1 (fallback enabled)
+
+tcp_force_peer_unreliable_ece - BOOLEAN
+	If accurate ECN has not been negociated, continuously set CWR on all
+	outgoing TCP packets to coaxe the receiver to send at most one ECE
+	per received CE. This enables to approximate on the sender-side the
+	number of CE received on the receiver side, and can be used by
+	scalable congestion control algorithms such as DCTCP.
 
 tcp_fack - BOOLEAN
 	This is a legacy option, it has no effect anymore.
