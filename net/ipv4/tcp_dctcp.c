@@ -125,7 +125,7 @@ static void dctcp_update_alpha(struct sock *sk, u32 flags)
 
 		/* alpha = (1 - g) * alpha + g * F */
 
-		alpha -= min_not_zero(alpha, alpha >> dctcp_shift_g);
+		alpha -= alpha >> dctcp_shift_g;
 		if (delivered_ce) {
 			u32 delivered = tp->delivered - ca->old_delivered;
 
