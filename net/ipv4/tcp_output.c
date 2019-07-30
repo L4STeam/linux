@@ -413,13 +413,6 @@ static void tcp_ecn_send(struct sock *sk, struct sk_buff *skb,
 			}
 			if (tp->ecn_flags & TCP_ECN_DEMAND_CWR)
 				th->ece = 1;
-			if (tcp_force_peer_unreliable_ece(sk)) {
-				/* Trick the receiver into sending one ECE per
-				 * CE.
-				 */
-				th->cwr = 1;
-				skb_shinfo(skb)->gso_type |= SKB_GSO_TCP_ECN;
-			}
 		}
 	}
 }

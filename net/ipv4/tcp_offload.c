@@ -65,7 +65,6 @@ struct sk_buff *tcp_gso_segment(struct sk_buff *skb,
 	struct sk_buff *gso_skb = skb;
 	__sum16 newcheck;
 	bool ooo_okay, copy_destructor;
-	u8 reset_cwr;
 
 	th = tcp_hdr(skb);
 	thlen = th->doff * 4;
@@ -122,7 +121,6 @@ struct sk_buff *tcp_gso_segment(struct sk_buff *skb,
 	newcheck = ~csum_fold((__force __wsum)((__force u32)th->check +
 					       (__force u32)delta));
 
-	reset_cwr = !(tcp_force_peer_unreliable_ece(gso_skb->sk));
 	while (skb->next) {
 		th->fin = th->psh = 0;
 		th->check = newcheck;
@@ -143,8 +141,7 @@ struct sk_buff *tcp_gso_segment(struct sk_buff *skb,
 
 		th->seq = htonl(seq);
 
-		if (!(skb_shinfo(skb)->gso_type & SKB_GSO_TCP_ACCECN)
-		    && reset_cwr)
+		if (!(skb_shinfo(skb)->gso_type & SKB_GSO_TCP_ACCECN))
 			th->cwr = 0;
 	}
 
