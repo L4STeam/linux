@@ -316,13 +316,6 @@ tcp_ecn_fallback - BOOLEAN
 	control) ECN settings are disabled.
 	Default: 1 (fallback enabled)
 
-tcp_force_peer_unreliable_ece - BOOLEAN
-	If accurate ECN has not been negociated, continuously set CWR on all
-	outgoing TCP packets to coaxe the receiver to send at most one ECE
-	per received CE. This enables to approximate on the sender-side the
-	number of CE received on the receiver side, and can be used by
-	scalable congestion control algorithms such as DCTCP.
-
 tcp_fack - BOOLEAN
 	This is a legacy option, it has no effect anymore.
 

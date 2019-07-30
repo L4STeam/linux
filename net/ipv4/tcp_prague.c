@@ -131,8 +131,7 @@ static void prague_init(struct sock *sk)
 
 	if ((tp->ecn_flags & TCP_ACCECN_OK) ||
 	    (sk->sk_state == TCP_LISTEN ||
-	     sk->sk_state == TCP_CLOSE) ||
-	    sock_net(sk)->ipv4.sysctl_tcp_force_peer_unreliable_ece) {
+	     sk->sk_state == TCP_CLOSE)) {
 		struct prague *ca = prague_ca(sk);
 
 		ca->prior_snd_una = tp->snd_una;
@@ -148,7 +147,11 @@ static void prague_init(struct sock *sk)
 		prague_reset(tp, ca);
 		return;
 	}
-	/* Cannot use Prague without AccECN or the unreliable fallback */
+	/* Cannot use Prague without AccECN
+	 * TODO(otilmans) If TCP_ECN_OK, we can trick the receiver to echo few
+	 * ECEs per CE received by setting CWR at most once every two segments.
+	 * This is however quite sensitive to ACK thinning...
+	 */
 	prague_fallback_to_ca(sk);
 }
 
@@ -160,7 +163,7 @@ static u32 prague_ssthresh(struct sock *sk)
 
 	ca->loss_cwnd = tp->snd_cwnd;
 	reduction = ((ca->prague_alpha >> prague_shift_g) * tp->snd_cwnd
-		     /* Unbias the rouding by adding 1/2 */
+		     /* Unbias the rounding by adding 1/2 */
 		     + PRAGUE_MAX_ALPHA) >> (PRAGUE_ALPHA_BITS  + 1U);
 	return max(tp->snd_cwnd - (u32)reduction, 2U);
 }
