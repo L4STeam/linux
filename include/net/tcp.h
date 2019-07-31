@@ -1116,6 +1116,7 @@ struct rate_sample {
 	bool is_app_limited;	/* is sample from packet with bubble in pipe? */
 	bool is_retrans;	/* is sample from retransmission? */
 	bool is_ack_delayed;	/* is this (likely) a delayed ACK? */
+	bool is_ece;		/* is this ACK echoing a received CE? */
 };
 
 struct tcp_congestion_ops {
