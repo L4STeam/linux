@@ -397,22 +397,41 @@ void tcp_openreq_init_rwin(struct request_sock *req,
 }
 EXPORT_SYMBOL(tcp_openreq_init_rwin);
 
+static void tcp_accecn_openreq_child(struct tcp_sock *tp,
+				     const struct request_sock *req,
+				     const struct sk_buff *skb)
+{
+	u8 ace = tcp_accecn_ace(tcp_hdr(skb));
+
+	switch (ace) {
+	case 0:
+		tcp_set_ecn_status(tp, TCP_ECN_DISABLED);
+		break;
+	case 7:
+	case 5:
+	case 1:
+		/* Unused but legal values */
+		tcp_set_ecn_status(tp, TCP_ACCECN_OK);
+		tcp_accecn_init_counters(tp);
+		break;
+	default:
+		tcp_set_ecn_status(tp, TCP_ACCECN_PENDING);
+		tcp_accecn_syn_feedback(tp, ace, tcp_rsk(req)->ect_snt,
+					TCP_ACCECN_OK);
+		break;
+	}
+}
+
 static void tcp_ecn_openreq_child(struct tcp_sock *tp,
 				  const struct request_sock *req,
 				  const struct sk_buff *skb)
 {
-	struct inet_request_sock *irsk = inet_rsk(req);
-	u8 ace = tcp_accecn_skb_cb_ace(skb);
-
-	tp->ecn_flags = irsk->ecn_ok ? TCP_ECN_OK : 0;
-	if (irsk->accecn_ok &&  ace > 1) {
-		tp->ecn_flags |= TCP_ACCECN_OK;
-		tcp_accecn_init_counters(tp);
-		if (ace == 6)
-			tp->delivered_ce++;
-		tp->received_ce += req->ce_marked;
-	}
-	tp->received_ce_tx = 0;
+	if (tcp_rsk(req)->accecn_ok)
+		tcp_accecn_openreq_child(tp, req, skb);
+	else if (inet_rsk(req)->ecn_ok)
+		tcp_set_ecn_status(tp, TCP_ECN_OK);
+	else
+		tcp_set_ecn_status(tp, TCP_ECN_DISABLED);
 }
 
 void tcp_ca_openreq_child(struct sock *sk, const struct dst_entry *dst)

@@ -310,7 +310,8 @@ tcp_ecn - INTEGER
 tcp_ecn_fallback - BOOLEAN
 	If the kernel detects that ECN connection misbehaves, enable fall
 	back to non-ECN. Currently, this knob implements the fallback
-	from RFC3168, section 6.1.1.1., but we reserve that in future,
+	from RFC3168, section 6.1.1.1., as well as the ECT codepoint bleaching
+    detection during the Accurate ECN handshake, but we reserve that in future,
 	additional detection mechanisms could be implemented under this
 	knob. The value	is not used, if tcp_ecn or per route (or congestion
 	control) ECN settings are disabled.

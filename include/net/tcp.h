@@ -358,11 +358,75 @@ static inline void tcp_dec_quickack_mode(struct sock *sk,
 	}
 }
 
-#define	TCP_ECN_OK		0x01
-#define	TCP_ECN_QUEUE_CWR	0x02
-#define	TCP_ECN_DEMAND_CWR	0x04
-#define	TCP_ECN_SEEN		0x08
-#define	TCP_ACCECN_OK		0x10
+/* ECN Status */
+#define TCP_ECN_DISABLED	0
+#define TCP_ECN_OK		BIT(0)
+#define TCP_ACCECN_OK		BIT(1)
+#define TCP_ECN_STATUS_BITS	2
+#define TCP_ECN_STATUS_MASK	((1 << TCP_ECN_STATUS_BITS) - 1)
+#define TCP_ACCECN_PENDING	(TCP_ECN_OK | TCP_ACCECN_OK)
+
+#define	TCP_ECN_SEEN		BIT(TCP_ECN_STATUS_BITS)
+#define	TCP_ECN_ECT_1		BIT(TCP_ECN_STATUS_BITS + 1)
+/* TCP_ECN_OK flags */
+#define	TCP_ECN_QUEUE_CWR	BIT(TCP_ECN_STATUS_BITS + 2)
+#define	TCP_ECN_DEMAND_CWR	BIT(TCP_ECN_STATUS_BITS + 3)
+/* TCP_ACCECN_* mask offsets where sent/received ECT are stored */
+#define TCP_ACCECN_SNT_ECT_OFF	(TCP_ECN_STATUS_BITS + 2)
+#define TCP_ACCECN_RCV_ECT_OFF	(TCP_ECN_STATUS_BITS + 4)
+
+static inline void __tcp_set_ecn_flags(struct tcp_sock *tp, int val, int mask,
+				       int offset)
+{
+	tp->ecn_flags = (tp->ecn_flags & ~(mask << offset)) |
+		((val & mask) << offset);
+}
+
+static inline int __tcp_read_ecn_flags(const struct tcp_sock *tp, int mask,
+					int offset)
+{
+	return (tp->ecn_flags >> offset) & mask;
+}
+
+static inline int tcp_ecn_status(const struct tcp_sock *tp)
+{
+	return __tcp_read_ecn_flags(tp, TCP_ECN_STATUS_MASK, 0);
+}
+
+static inline void tcp_set_ecn_status(struct tcp_sock *tp, int status)
+{
+	__tcp_set_ecn_flags(tp, status, TCP_ECN_STATUS_MASK, 0);
+}
+
+static inline bool tcp_ecn_ok(const struct tcp_sock *tp)
+{
+	return tcp_ecn_status(tp) >= TCP_ECN_OK;
+}
+
+static inline bool tcp_accecn_ok(const struct tcp_sock *tp)
+{
+	return tcp_ecn_status(tp) == TCP_ACCECN_OK;
+}
+
+static inline int tcp_accecn_snt_ect(const struct tcp_sock *tp)
+{
+	return __tcp_read_ecn_flags(tp, INET_ECN_MASK, TCP_ACCECN_SNT_ECT_OFF);
+}
+
+static inline void tcp_accecn_set_snt_ect(struct tcp_sock *tp, int ect)
+{
+	__tcp_set_ecn_flags(tp, ect, INET_ECN_MASK, TCP_ACCECN_SNT_ECT_OFF);
+}
+
+static inline int tcp_accecn_rcv_ect(const struct tcp_sock *tp)
+{
+	return __tcp_read_ecn_flags(tp, INET_ECN_MASK, TCP_ACCECN_RCV_ECT_OFF);
+}
+
+static inline void tcp_accecn_set_rcv_ect(struct tcp_sock *tp, int ect)
+{
+	__tcp_set_ecn_flags(tp, ect, INET_ECN_MASK, TCP_ACCECN_RCV_ECT_OFF);
+}
 
 enum tcp_tw_status {
 	TCP_TW_SUCCESS = 0,
@@ -370,7 +434,6 @@ enum tcp_tw_status {
 	TCP_TW_ACK = 2,
 	TCP_TW_SYN = 3
 };
-
 
 enum tcp_tw_status tcp_timewait_state_process(struct inet_timewait_sock *tw,
 					      struct sk_buff *skb,
@@ -661,7 +724,7 @@ static inline u32 __tcp_set_rto(const struct tcp_sock *tp)
 
 static inline void __tcp_fast_path_on(struct tcp_sock *tp, u32 snd_wnd)
 {
-	tp->pred_flags = (tp->ecn_flags & TCP_ACCECN_OK) ?
+	tp->pred_flags = tcp_accecn_ok(tp) ?
 		htonl((tp->tcp_header_len << 26)
 		      | ((tp->delivered_ce & 7) << 22)
 		      | ntohl(TCP_FLAG_ACK) | snd_wnd) :
@@ -881,7 +944,7 @@ static inline u8 tcp_accecn_skb_cb_ace(const struct sk_buff *skb)
 }
 
 static inline void tcp_accecn_copy_skb_cb_ace(const struct sk_buff *from,
-					    struct sk_buff *to)
+					      struct sk_buff *to)
 {
 	const u8 res_flags = TCP_SKB_CB(to)->tcp_res_flags & ~TCPHDR_AE;
 	const u8 flags = TCP_SKB_CB(to)->tcp_flags & ~(TCPHDR_ECE | TCPHDR_CWR);
@@ -1018,6 +1081,10 @@ enum tcp_ca_ack_event_flags {
 #define TCP_CONG_NON_RESTRICTED 0x1
 /* Requires ECN/ECT set on all packets */
 #define TCP_CONG_NEEDS_ECN	0x2
+/* Require to request AccECN */
+#define TCP_CONG_NEEDS_ACCECN	0x4
+/* Requires ECT(1) set on all packets */
+#define TCP_CONG_WANTS_ECT_1	0x6
 
 union tcp_cc_info;
 
@@ -1128,6 +1195,20 @@ static inline bool tcp_ca_needs_ecn(const struct sock *sk)
 	const struct inet_connection_sock *icsk = inet_csk(sk);
 
 	return icsk->icsk_ca_ops->flags & TCP_CONG_NEEDS_ECN;
+}
+
+static inline bool tcp_ca_needs_accecn(const struct sock *sk)
+{
+	const struct inet_connection_sock *icsk = inet_csk(sk);
+
+	return icsk->icsk_ca_ops->flags & TCP_CONG_NEEDS_ACCECN;
+}
+
+static inline bool tcp_ca_wants_ect_1(const struct sock *sk)
+{
+	const struct inet_connection_sock *icsk = inet_csk(sk);
+
+	return icsk->icsk_ca_ops->flags & TCP_CONG_WANTS_ECT_1;
 }
 
 static inline void tcp_set_ca_state(struct sock *sk, const u8 ca_state)
@@ -2323,5 +2404,8 @@ static inline void tcp_accecn_init_counters(struct tcp_sock *tp)
 	tp->received_ce = TCP_ACCECN_CEP_INIT;
 	tp->received_ce_tx = TCP_ACCECN_CEP_INIT;
 }
+
+bool tcp_accecn_syn_feedback(struct tcp_sock *tp, int ace, int sent_ect,
+			     int end_state);
 
 #endif	/* _TCP_H */

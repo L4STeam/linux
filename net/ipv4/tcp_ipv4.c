@@ -939,7 +939,7 @@ static int tcp_v4_send_synack(const struct sock *sk, struct dst_entry *dst,
 			      struct tcp_fastopen_cookie *foc,
 			      enum tcp_synack_type synack_type)
 {
-	const struct inet_request_sock *ireq = inet_rsk(req);
+	struct inet_request_sock *ireq = inet_rsk(req);
 	struct flowi4 fl4;
 	int err = -1;
 	struct sk_buff *skb;
@@ -951,6 +951,7 @@ static int tcp_v4_send_synack(const struct sock *sk, struct dst_entry *dst,
 	skb = tcp_make_synack(sk, dst, req, foc, synack_type);
 
 	if (skb) {
+		tcp_rsk(req)->ect_snt = inet_sk(sk)->tos & INET_ECN_MASK;
 		__tcp_v4_send_check(skb, ireq->ir_loc_addr, ireq->ir_rmt_addr);
 
 		rcu_read_lock();
@@ -1726,7 +1727,7 @@ bool tcp_add_backlog(struct sock *sk, struct sk_buff *skb)
 		thtail->fin |= th->fin;
 		TCP_SKB_CB(tail)->tcp_flags |= TCP_SKB_CB(skb)->tcp_flags;
 		TCP_SKB_CB(tail)->tcp_res_flags |= TCP_SKB_CB(skb)->tcp_res_flags;
-		if (tcp_sk(sk)->ecn_flags & TCP_ACCECN_OK)
+		if (tcp_accecn_ok(tcp_sk(sk)))
 			tcp_accecn_copy_skb_cb_ace(tail, skb);
 
 		if (TCP_SKB_CB(skb)->has_rxtstamp) {
