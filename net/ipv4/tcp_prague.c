@@ -57,10 +57,14 @@ struct prague {
 static unsigned int prague_shift_g __read_mostly = 4; /* g = 1/2^4 */
 static int prague_ect __read_mostly = 1;
 static int prague_ecn_plus_plus __read_mostly = 1;
-static int prague_burst_usec __read_mostly = 500; /* .5ms */
+static int prague_burst_usec __read_mostly = 250; /* .25ms */
+static int prague_init_alpha __read_mostly = PRAGUE_MAX_ALPHA;
 
 MODULE_PARM_DESC(prague_shift_g, "gain parameter for alpha EWMA");
 module_param(prague_shift_g, uint, 0644);
+
+MODULE_PARM_DESC(prague_init_alpha, "initial alpha value");
+module_param(prague_init_alpha, uint, 0644);
 
 MODULE_PARM_DESC(prague_burst_usec, "maximal TSO burst duration");
 module_param(prague_burst_usec, uint, 0644);
@@ -344,7 +348,7 @@ static void prague_init(struct sock *sk)
 
 		ca->prior_snd_una = tp->snd_una;
 		ca->prior_rcv_nxt = tp->rcv_nxt;
-		ca->upscaled_alpha = 0;
+		ca->upscaled_alpha = prague_init_alpha << prague_shift_g;
 		ca->loss_cwnd = 0;
 		/* Conservatively start with a very low TSO limit */
 		ca->max_tso_burst = 1;
