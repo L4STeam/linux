@@ -52,6 +52,7 @@ struct prague {
 	u32 loss_cwnd;
 	u32 max_tso_burst;
 	bool was_ce;
+	bool saw_ce;
 };
 
 static unsigned int prague_shift_g __read_mostly = 4; /* g = 1/2^4 */
@@ -172,6 +173,12 @@ static void prague_rtt_expired(struct sock *sk)
 	struct tcp_sock *tp = tcp_sk(sk);
 	u64 bytes_ecn, alpha;
 
+	/* Do not update alpha before we have proof that there's an AQM on
+	 * the path.
+	 */
+	if (unlikely(!ca->saw_ce))
+		goto reset;
+
 	bytes_ecn = ca->acked_bytes_ecn;
 	alpha = ca->upscaled_alpha;
 	/* We diverge from the original EWMA, i.e.,
@@ -196,6 +203,7 @@ static void prague_rtt_expired(struct sock *sk)
 
 	WRITE_ONCE(ca->upscaled_alpha, alpha);
 
+reset:
 	prague_reset(tp, ca);
 }
 
@@ -203,8 +211,10 @@ static void prague_update_window(struct sock *sk,
 				 const struct rate_sample *rs)
 {
 	/* Do not increase cwnd for ACKs indicating congestion */
-	if (rs->is_ece)
+	if (rs->is_ece) {
+		prague_ca(sk)->saw_ce = true;
 		return;
+	}
 
 	tcp_reno_cong_avoid(sk, 0, rs->acked_sacked);
 }
@@ -345,11 +355,13 @@ static void prague_init(struct sock *sk)
 	if (tcp_ecn_ok(tp) ||
 	    (sk->sk_state == TCP_LISTEN || sk->sk_state == TCP_CLOSE)) {
 		struct prague *ca = prague_ca(sk);
+		struct tcp_sock *tp = tcp_sk(sk);
 
 		ca->prior_snd_una = tp->snd_una;
 		ca->prior_rcv_nxt = tp->rcv_nxt;
 		ca->upscaled_alpha = prague_init_alpha << prague_shift_g;
 		ca->loss_cwnd = 0;
+		ca->saw_ce = tp->delivered_ce != TCP_ACCECN_CEP_INIT;
 		/* Conservatively start with a very low TSO limit */
 		ca->max_tso_burst = 1;
 
