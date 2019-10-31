@@ -128,7 +128,7 @@ static u32 prague_ssthresh(struct sock *sk)
 static void prague_update_pacing_rate(struct sock *sk)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
-	u64 max_burst, rate;
+	u64 max_burst, rate, pacing_rate;
 	u32 max_inflight;
 
 	max_inflight = max(tp->snd_cwnd, tp->packets_out);
@@ -137,14 +137,9 @@ static void prague_update_pacing_rate(struct sock *sk)
 	if (likely(tp->srtt_us))
 		do_div(rate, tp->srtt_us);
 
-	max_burst = div_u64(rate * prague_burst_usec,
-			    tp->mss_cache * USEC_PER_SEC);
-	max_burst = max_t(u32, 1, max_burst);
-	WRITE_ONCE(prague_ca(sk)->max_tso_burst, max_burst);
-
 	if (tp->snd_cwnd < tp->snd_ssthresh / 2)
-		/* 200% for slowstart */
-		rate *= 2 ;
+		pacing_rate =
+			rate * sock_net(sk)->ipv4.sysctl_tcp_pacing_ss_ratio;
 	else if (tp->packets_out < tp->snd_cwnd)
 		/* Scale pacing rate based on the number of consecutive segments
 		 * that can be sent, i.e., rate is 200% for high BDPs
@@ -153,9 +148,19 @@ static void prague_update_pacing_rate(struct sock *sk)
 		 * RTT is aggregated into a single ACK or if we have more in
 		 * flight data than our cwnd allows.
 		 */
-		rate += rate * (1 + tp->packets_out) / max_inflight;
-	rate = min_t(u64, rate, sk->sk_max_pacing_rate);
+		/* pacing_rate = rate + rate * (1 + tp->packets_out) / max_inflight; */
+		pacing_rate =
+			rate * sock_net(sk)->ipv4.sysctl_tcp_pacing_ca_ratio;
+	do_div(pacing_rate, 100);
+	rate = min_t(u64, pacing_rate, sk->sk_max_pacing_rate);
 	WRITE_ONCE(sk->sk_pacing_rate, rate);
+
+	max_burst = div_u64(rate * prague_burst_usec,
+			    tp->mss_cache * USEC_PER_SEC);
+	max_burst *= rate;
+	do_div(max_burst, pacing_rate);
+	max_burst = max_t(u32, 1, max_burst);
+	WRITE_ONCE(prague_ca(sk)->max_tso_burst, max_burst);
 }
 
 static void prague_rtt_expired(struct sock *sk)
