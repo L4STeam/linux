@@ -42,11 +42,8 @@ static struct tcp_congestion_ops prague_reno;
 
 struct prague {
 	u64 upscaled_alpha;
-	u32 delivered;
-	u32 delivered_ce;
-	u32 acked_bytes_ecn;
-	u32 acked_bytes_total;
-	u32 prior_snd_una;
+	u32 old_delivered;
+	u32 old_delivered_ce;
 	u32 prior_rcv_nxt;
 	u32 next_seq;
 	u32 loss_cwnd;
@@ -114,10 +111,8 @@ static void __prague_connection_id(struct sock *sk, char *str, size_t len)
 static void prague_reset(const struct tcp_sock *tp, struct prague *ca)
 {
 	ca->next_seq = tp->snd_nxt;
-	ca->acked_bytes_ecn = 0;
-	ca->acked_bytes_total = 0;
-	ca->delivered_ce = tp->delivered_ce;
-	ca->delivered = tp->delivered;
+	ca->old_delivered_ce = tp->delivered_ce;
+	ca->old_delivered = tp->delivered;
 	ca->was_ce = false;
 }
 
@@ -171,7 +166,7 @@ static void prague_rtt_expired(struct sock *sk)
 {
 	struct prague *ca = prague_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
-	u64 bytes_ecn, alpha;
+	u64 ecn_segs, alpha;
 
 	/* Do not update alpha before we have proof that there's an AQM on
 	 * the path.
@@ -179,27 +174,24 @@ static void prague_rtt_expired(struct sock *sk)
 	if (unlikely(!ca->saw_ce))
 		goto reset;
 
-	bytes_ecn = ca->acked_bytes_ecn;
 	alpha = ca->upscaled_alpha;
+	ecn_segs = tp->delivered_ce - ca->old_delivered_ce;
 	/* We diverge from the original EWMA, i.e.,
 	 * alpha = (1 - g) * alpha + g * F
 	 * by working with (and storing)
 	 * upscaled_alpha = alpha * (1/g) [recall that 0<g<1]
-	 * As a result, the EWMA then becomes
-	 * upscaled_alpha = upscaled_alpha * (1/g - 1) + F.
 	 *
 	 * This enables to carry alpha's residual value to the next EWMA round.
 	 *
-	 * We first compute F, the fraction of ecn bytes.
+	 * We first compute F, the fraction of ecn segments.
 	 */
-	if (bytes_ecn) {
-		/* bytes_ecn has to be 64b to avoid overfow as alpha's
-		 * resolution increases.
-		 */
-		bytes_ecn <<= PRAGUE_ALPHA_BITS;
-		do_div(bytes_ecn, max(1U, ca->acked_bytes_total));
+	if (ecn_segs) {
+		u32 acked_segs = tp->delivered - ca->old_delivered;
+
+		ecn_segs <<= PRAGUE_ALPHA_BITS;
+		do_div(ecn_segs, max(1U, acked_segs));
 	}
-	alpha = alpha - (alpha >> prague_shift_g) + bytes_ecn;
+	alpha = alpha - (alpha >> prague_shift_g) + ecn_segs;
 
 	WRITE_ONCE(ca->upscaled_alpha, alpha);
 
@@ -219,32 +211,8 @@ static void prague_update_window(struct sock *sk,
 	tcp_reno_cong_avoid(sk, 0, rs->acked_sacked);
 }
 
-static void prague_update_ce_stats(struct sock *sk)
-{
-	struct tcp_sock *tp = tcp_sk(sk);
-	struct prague *ca = prague_ca(sk);
-	u32 acked_bytes;
-
-	acked_bytes = tp->snd_una - ca->prior_snd_una;
-	if (acked_bytes) {
-		u32 d_ce = tp->delivered_ce - ca->delivered_ce;
-		u32 d_packets = tp->delivered - ca->delivered;
-
-		if (d_packets && d_ce) {
-			u32 avg_psize = acked_bytes / d_packets;
-
-			ca->acked_bytes_ecn += d_ce * avg_psize;
-		}
-		ca->acked_bytes_total += acked_bytes;
-		ca->prior_snd_una = tp->snd_una;
-	}
-	ca->delivered = tp->delivered;
-	ca->delivered_ce = tp->delivered_ce;
-}
-
 static void prague_cong_control(struct sock *sk, const struct rate_sample *rs)
 {
-	prague_update_ce_stats(sk);
 	prague_update_window(sk, rs);
 	if (prague_rtt_complete(sk))
 		prague_rtt_expired(sk);
@@ -321,8 +289,6 @@ static size_t prague_get_info(struct sock *sk, u32 ext, int *attr,
 		memset(&info->prague, 0, sizeof(info->prague));
 		info->prague.prague_alpha =
 			ca->upscaled_alpha >> prague_shift_g;
-		info->prague.prague_ab_ecn = ca->acked_bytes_ecn;
-		info->prague.prague_ab_tot = ca->acked_bytes_total;
 		info->prague.prague_max_burst = ca->max_tso_burst;
 
 		*attr = INET_DIAG_PRAGUEINFO;
@@ -357,7 +323,6 @@ static void prague_init(struct sock *sk)
 		struct prague *ca = prague_ca(sk);
 		struct tcp_sock *tp = tcp_sk(sk);
 
-		ca->prior_snd_una = tp->snd_una;
 		ca->prior_rcv_nxt = tp->rcv_nxt;
 		ca->upscaled_alpha = prague_init_alpha << prague_shift_g;
 		ca->loss_cwnd = 0;
