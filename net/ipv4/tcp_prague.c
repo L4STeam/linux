@@ -36,7 +36,7 @@
 #include <linux/inet.h>
 
 #define PRAGUE_ALPHA_BITS	31
-#define PRAGUE_MAX_ALPHA	(1U << PRAGUE_ALPHA_BITS)
+#define PRAGUE_MAX_ALPHA	((u64)(1U << PRAGUE_ALPHA_BITS))
 
 static struct tcp_congestion_ops prague_reno;
 
@@ -52,17 +52,13 @@ struct prague {
 	bool saw_ce;
 };
 
-static unsigned int prague_shift_g __read_mostly = 4; /* g = 1/2^4 */
+static u32 prague_shift_g __read_mostly = 4; /* g = 1/2^4 */
 static int prague_ect __read_mostly = 1;
 static int prague_ecn_plus_plus __read_mostly = 1;
-static int prague_burst_usec __read_mostly = 250; /* .25ms */
-static int prague_init_alpha __read_mostly = PRAGUE_MAX_ALPHA;
+static u32 prague_burst_usec __read_mostly = 250; /* .25ms */
 
 MODULE_PARM_DESC(prague_shift_g, "gain parameter for alpha EWMA");
 module_param(prague_shift_g, uint, 0644);
-
-MODULE_PARM_DESC(prague_init_alpha, "initial alpha value");
-module_param(prague_init_alpha, uint, 0644);
 
 MODULE_PARM_DESC(prague_burst_usec, "maximal TSO burst duration");
 module_param(prague_burst_usec, uint, 0644);
@@ -324,7 +320,7 @@ static void prague_init(struct sock *sk)
 		struct tcp_sock *tp = tcp_sk(sk);
 
 		ca->prior_rcv_nxt = tp->rcv_nxt;
-		ca->upscaled_alpha = prague_init_alpha << prague_shift_g;
+		ca->upscaled_alpha = PRAGUE_MAX_ALPHA << prague_shift_g;
 		ca->loss_cwnd = 0;
 		ca->saw_ce = tp->delivered_ce != TCP_ACCECN_CEP_INIT;
 		/* Conservatively start with a very low TSO limit */
