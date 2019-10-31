@@ -223,23 +223,41 @@ static void prague_react_to_loss(struct sock *sk)
 	prague_ca(sk)->loss_cwnd = tp->snd_cwnd;
 	/* Stay fair with reno (RFC-style) */
 	tp->snd_ssthresh = max(tp->snd_cwnd >> 1U, 2U);
+	tp->snd_cwnd = tp->snd_ssthresh;
+	tp->snd_cwnd_stamp = tcp_jiffies32;
+}
+
+static void prague_enter_cwr(struct sock *sk)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	/* prague_ssthresh() has already been applied to snd_ssthresh in
+	 * tcp_init_cwnd_reduction()
+	 */
+	tp->snd_cwnd = tp->snd_ssthresh;
+	tp->snd_ssthresh = tp->snd_cwnd;
+	tp->snd_cwnd_stamp = tcp_jiffies32;
 }
 
 static void prague_state(struct sock *sk, u8 new_state)
 {
-	struct tcp_sock *tp = tcp_sk(sk);
+	u8 old_state = inet_csk(sk)->icsk_ca_state;
 
-	if (new_state == inet_csk(sk)->icsk_ca_state)
+	if (new_state == old_state) {
+		WARN_ONCE("State changed to itself (%u)!", new_state);
 		return;
+	}
 
 	switch (new_state) {
 		case TCP_CA_Recovery:
 			prague_react_to_loss(sk);
 			break;
 		case TCP_CA_CWR:
-			tp->snd_cwnd = prague_ssthresh(sk);
-			tp->snd_ssthresh = tp->snd_cwnd;
+			prague_enter_cwr(sk);
 			break;
+		/* case TCP_CA_Open:
+		 *	if (old_state == TCP_CA_CWR)
+		 *		prague_leave_cwr(sk); */
 		default:
 			break;
 	}
