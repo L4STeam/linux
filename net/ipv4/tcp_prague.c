@@ -137,9 +137,9 @@ static void prague_update_pacing_rate(struct sock *sk)
 	if (likely(tp->srtt_us))
 		do_div(rate, tp->srtt_us);
 
+	pacing_rate = rate;
 	if (tp->snd_cwnd < tp->snd_ssthresh / 2)
-		pacing_rate =
-			rate * sock_net(sk)->ipv4.sysctl_tcp_pacing_ss_ratio;
+		pacing_rate *= sock_net(sk)->ipv4.sysctl_tcp_pacing_ss_ratio;
 	else if (tp->packets_out < tp->snd_cwnd)
 		/* Scale pacing rate based on the number of consecutive segments
 		 * that can be sent, i.e., rate is 200% for high BDPs
@@ -149,16 +149,17 @@ static void prague_update_pacing_rate(struct sock *sk)
 		 * flight data than our cwnd allows.
 		 */
 		/* pacing_rate = rate + rate * (1 + tp->packets_out) / max_inflight; */
-		pacing_rate =
-			rate * sock_net(sk)->ipv4.sysctl_tcp_pacing_ca_ratio;
+		pacing_rate *= sock_net(sk)->ipv4.sysctl_tcp_pacing_ca_ratio;
 	do_div(pacing_rate, 100);
 	rate = min_t(u64, pacing_rate, sk->sk_max_pacing_rate);
 	WRITE_ONCE(sk->sk_pacing_rate, rate);
 
 	max_burst = div_u64(rate * prague_burst_usec,
 			    tp->mss_cache * USEC_PER_SEC);
-	max_burst *= rate;
-	do_div(max_burst, pacing_rate);
+	if (likely(pacing_rate)) {
+		max_burst *= rate;
+		do_div(max_burst, pacing_rate);
+	}
 	max_burst = max_t(u32, 1, max_burst);
 	WRITE_ONCE(prague_ca(sk)->max_tso_burst, max_burst);
 }
@@ -206,8 +207,11 @@ static void prague_update_window(struct sock *sk,
 	/* Do not increase cwnd for ACKs indicating congestion */
 	if (rs->is_ece) {
 		prague_ca(sk)->saw_ce = true;
-		return;
+		/*return;*/
 	}
+	/* We don't implement PRR at the moment... */
+	/* if (inet_csk(sk)->icsk_ca_state != TCP_CA_Open)
+		return; */
 
 	tcp_reno_cong_avoid(sk, 0, rs->acked_sacked);
 }
@@ -248,10 +252,8 @@ static void prague_state(struct sock *sk, u8 new_state)
 {
 	u8 old_state = inet_csk(sk)->icsk_ca_state;
 
-	if (new_state == old_state) {
-		WARN_ONCE("State changed to itself (%u)!", new_state);
+	if (new_state == old_state)
 		return;
-	}
 
 	switch (new_state) {
 		case TCP_CA_Recovery:
