@@ -427,8 +427,13 @@ static int tcp_ecn_rcv_ecn_echo(struct sock *sk, const struct tcphdr *th)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
-	WARN(tcp_ecn_status(tp) == TCP_ACCECN_PENDING, "Received an ACK "
-	     "while ECN status is still in TCP_ACCECN_PENDING\n");
+	WARN(tcp_ecn_status(tp) == TCP_ACCECN_PENDING &&
+	     /* In TCP_SYN_SENT, we will parse the SYN+ACK through tcp_ack()
+	      * before sending the final ACK of the 3WHS--which will move us
+	      * to TCP_ACCECN_OK after echoing the SYN+ACK ECT codepoint.
+	      */
+	     sk->sk_state == TCP_ESTABLISHED,
+	     "Incomplete AccECN negociation in an ESTABLISHED connection!\n");
 	switch (tcp_ecn_status(tp)) {
 	case TCP_ACCECN_OK:
 		return (tcp_accecn_ace(th) + 8 - (tp->delivered_ce & 7)) & 7;
