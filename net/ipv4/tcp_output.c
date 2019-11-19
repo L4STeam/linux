@@ -376,7 +376,7 @@ static void tcp_ecn_clear_syn(struct sock *sk, struct sk_buff *skb)
 
 static void __tcp_accecn_echo_ect(struct tcphdr *th, int ect)
 {
-	th->ae = !!(ect & 2);
+	th->ae = !!(ect & INET_ECN_ECT_0);
 	th->cwr = ect != INET_ECN_ECT_0;
 	th->ece = ect == INET_ECN_ECT_1;
 }

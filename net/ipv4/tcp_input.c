@@ -333,9 +333,9 @@ static void tcp_ecn_check_ce(struct sock *sk, const struct sk_buff *skb)
 /* Infer the received ECT from the ACE field */
 static inline int tcp_accecn_echoed_ect(int ace)
 {
-	if (ace & 1)
+	if (ace & INET_ECN_ECT_1)
 		return INET_ECN_ECT_1;
-	if (!(ace & 2))
+	if (!(ace & INET_ECN_ECT_0))
 		return INET_ECN_ECT_0;
 	if (ace & 4)
 		return INET_ECN_CE;
@@ -361,7 +361,7 @@ bool tcp_accecn_syn_feedback(struct tcp_sock *tp, int ace, int sent_ect,
 		goto accept;
 	ect = tcp_accecn_echoed_ect(ace);
 	if (ect != sent_ect && ect != INET_ECN_CE) {
-		pr_warn("got=%d expected=%\n", ect, sent_ect);
+		pr_warn("got=%d expected=%d\n", ect, sent_ect);
 		goto reject;
 	}
 
