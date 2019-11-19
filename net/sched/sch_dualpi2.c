@@ -25,8 +25,9 @@
 #include <linux/skbuff.h>
 #include <linux/types.h>
 
-#include <net/pkt_sched.h>
 #include <net/inet_ecn.h>
+#include <net/pkt_sched.h>
+#include <net/pkt_cls.h>
 
 /* 32b enable to support flows with windows up to ~8.6 * 1e9 packets
  * i.e., twice the maximal snd_cwnd.
@@ -56,6 +57,12 @@ struct dualpi2_sched_data {
 	struct Qdisc *l_queue;	/* The L4S LL queue */
 	struct Qdisc *sch;	/* The classic queue (owner of this struct) */
 
+	/* Registered tc filters */
+	struct {
+		struct tcf_proto __rcu *filters;
+		struct tcf_block *block;
+	} tcf;
+
 	struct { /* PI2 parameters */
 		u64	target;	/* Target delay in nanoseconds */
 		u32	tupdate;/* Timer frequency in nanoseconds */
@@ -82,10 +89,11 @@ struct dualpi2_sched_data {
 	u8	ecn_mask;	/* Mask to match L4S packets */
 	bool	drop_early;	/* Drop at enqueue instead of dequeue if true */
 	bool	drop_overload;	/* Drop (1) on overload, or overflow (0) */
+	bool	split_gso;	/* Split aggregated skb (1) or leave as is */
 
 	/* Statistics */
-	u64	qdelay_c;	/* Classic Q delay */
-	u64	qdelay_l;	/* L4S Q delay */
+	u64	c_head_ts;	/* Enqueue timestamp of the classic Q's head */
+	u64	l_head_ts;	/* Enqueue timestamp of the L Q's head */
 	u64	last_qdelay;	/* Q delay val at the last probability update */
 	u32	packets_in_c;	/* Number of packets enqueued in C queue */
 	u32	packets_in_l;	/* Number of packets enqueued in L queue */
@@ -100,11 +108,20 @@ struct dualpi2_sched_data {
 };
 
 struct dualpi2_skb_cb {
-	u64 ts;		/* Timestamp at enqueue */
-	u8 apply_step:1,/* Can we apply the step threshold */
-	   l4s:1,	/* Packet has been classified as L4S */
-	   ect:2;	/* Packet ECT codepoint */
+	u64 ts;			/* Timestamp at enqueue */
+	u8 apply_step:1,	/* Can we apply the step threshold */
+	   classified:2,	/* Packet classification results */
+	   ect:2;		/* Packet ECT codepoint */
 };
+
+enum dualpi2_classification_results {
+	DUALPI2_C_CLASSIC	= 0,	/* C queue */
+	DUALPI2_C_L4S		= 1,	/* L queue (scalable marking/classic drops) */
+	DUALPI2_C_LLLL		= 2,	/* L queue (no drops/marks) */
+
+	__DUALPI2_C_MAX /* Keep last*/
+};
+
 
 static struct dualpi2_skb_cb *dualpi2_skb_cb(struct sk_buff *skb)
 {
@@ -117,11 +134,11 @@ static u64 skb_sojourn_time(struct sk_buff *skb, u64 reference)
 	return reference - dualpi2_skb_cb(skb)->ts;
 }
 
-static u64 qdelay_in_ns(struct Qdisc *q, u64 now)
+static u64 head_enqueue_time(struct Qdisc *q)
 {
 	struct sk_buff *skb = qdisc_peek_head(q);
 
-	return skb ? skb_sojourn_time(skb, now) : 0;
+	return skb ? dualpi2_skb_cb(skb)->ts : 0;
 }
 
 static u32 dualpi2_scale_alpha_beta(u32 param)
@@ -147,7 +164,12 @@ static ktime_t next_pi2_timeout(struct dualpi2_sched_data *q)
 
 static bool skb_is_l4s(struct sk_buff *skb)
 {
-	return dualpi2_skb_cb(skb)->l4s != 0;
+	return dualpi2_skb_cb(skb)->classified == DUALPI2_C_L4S;
+}
+
+static bool skb_in_l_queue(struct sk_buff *skb)
+{
+	return dualpi2_skb_cb(skb)->classified != DUALPI2_C_CLASSIC;
 }
 
 static bool dualpi2_mark(struct dualpi2_sched_data *q, struct sk_buff *skb)
@@ -183,73 +205,89 @@ static bool dualpi2_roll(u32 prob)
 	return prandom_u32() <= prob;
 }
 
-static bool dualpi2_squared_roll(struct dualpi2_sched_data *q)
-{
-	return dualpi2_roll(q->pi2.prob) && dualpi2_roll(q->pi2.prob);
-}
-
-static bool dualpi2_is_overloaded(u64 prob)
-{
-	return prob > MAX_PROB;
-}
-
-/* Check whether a packet must be dropped.
- *
- * Never drop if we have fewer than 2 MTU-size packets.
- * ECN-capable packets are marked with CE whenever possible.
- *
- * More precisely, packets in the L queue are subject to a marking probability
- * pL given by the internal PI2 probability scaled by the coupling factor.
- * Packets in the C queue are subject to a marking probability pC, which is the
+/* Packets in the C queue are subject to a marking probability pC, which is the
  * square of the internal PI2 probability (i.e., have an overall lower mark/drop
- * probability).
+ * probability). If the qdisc is overloaded, ignore ECT values and only drop.
  *
- * On overload (i.e., when pL>100%, for example due to unresponsive traffic),
- * either:
- * - preserve the delays in both queues without starving the C queue by
- *   dropping packets in both queues with a pC probability;
- * - or, preserve the "no loss" property of ECN, at the cost of increasing
- *   queuing delays in the L queue. Eventually, this will result in a taildrop
- *   behavior once the queue limit is reached.
+ * Note that this marking scheme is also applied to L4S packets during overload.
+ */
+static bool dualpi2_classic_marking(struct dualpi2_sched_data *q,
+				    struct sk_buff *skb, u32 prob,
+				    bool overload)
+{
+	if (dualpi2_roll(prob) && dualpi2_roll(prob)) {
+		if (overload || dualpi2_skb_cb(skb)->ect == INET_ECN_NOT_ECT)
+			return true;
+		dualpi2_mark(q, skb);
+	}
+	return false;
+}
+
+/* Packets in the L queue are subject to a marking probability pL given by the
+ * internal PI2 probability scaled by the coupling factor.
+ *
+ * On overload (i.e., @local_l_prob is >= 100%):
+ * - if the qdisc is configured to trade losses to preserve latency (i.e.,
+ *   @q->drop_overload), apply classic drops first before marking.
+ * - otherwise, preserve the "no loss" property of ECN at the cost of queueing
+ *   delay, eventually resulting in taildrop behavior once sch->limit is
+ *   reached.
+ */
+static bool dualpi2_scalable_marking(struct dualpi2_sched_data *q,
+				     struct sk_buff *skb,
+				     u64 local_l_prob, u32 prob,
+				     bool overload)
+{
+	if (overload) {
+		/* Apply classic drop */
+		if (!q->drop_overload ||
+		    !(dualpi2_roll(prob) && dualpi2_roll(prob)))
+			goto mark;
+		return true;
+	}
+
+	/* We can safely cut the upper 32b as overload==false*/
+	if (dualpi2_roll(local_l_prob)) {
+		/* Non-ECT packets could have classified as L4S by filters. */
+		if (dualpi2_skb_cb(skb)->ect == INET_ECN_NOT_ECT)
+			return true;
+mark:
+		dualpi2_mark(q, skb);
+	}
+	return false;
+}
+
+/* Decide whether a given packet must be dropped (or marked if ECT), according
+ * to the PI2 probability.
+ *
+ * Never mark/drop if we have a standing queue of less than 2 MTUs.
  */
 static bool must_drop(struct Qdisc *sch, struct dualpi2_sched_data *q,
 		      struct sk_buff *skb)
 {
 	u64 local_l_prob;
+	u32 prob;
+	bool overload;
 
 	if (sch->qstats.backlog < 2 * psched_mtu(qdisc_dev(sch)))
 		return false;
 
-	local_l_prob = (u64)q->pi2.prob * q->coupling_factor;
+	prob = READ_ONCE(q->pi2.prob);
+	local_l_prob = (u64)prob * q->coupling_factor;
+	overload = local_l_prob > MAX_PROB;
 
-	if (skb_is_l4s(skb)) {
-		if (dualpi2_is_overloaded(local_l_prob)) {
-			if (q->drop_overload && dualpi2_squared_roll(q))
-				goto drop;
-			else
-				goto mark;
-		} else if (dualpi2_roll(local_l_prob)) {
-			goto mark;
-		}
-	} else if (dualpi2_squared_roll(q)) {
-		if (dualpi2_skb_cb(skb)->ect &&
-		    !dualpi2_is_overloaded(local_l_prob))
-			goto mark;
-		else
-			goto drop;
+	switch (dualpi2_skb_cb(skb)->classified) {
+	case DUALPI2_C_CLASSIC:
+		return dualpi2_classic_marking(q, skb, prob, overload);
+	case DUALPI2_C_L4S:
+		return dualpi2_scalable_marking(q, skb, local_l_prob, prob,
+						overload);
+	default: /* DUALPI2_C_LLLL */
+		return false;
 	}
-	return false;
-
-mark:
-	dualpi2_mark(q, skb);
-	return false;
-
-drop:
-	return true;
 }
 
-static void dualpi2_skb_classify(struct dualpi2_sched_data *q,
-				 struct sk_buff *skb)
+static void dualpi2_read_ect(struct sk_buff *skb)
 {
 	struct dualpi2_skb_cb *cb = dualpi2_skb_cb(skb);
 	int wlen = skb_network_offset(skb);
@@ -274,56 +312,167 @@ static void dualpi2_skb_classify(struct dualpi2_sched_data *q,
 	default:
 		goto not_ecn;
 	}
-	cb->l4s = (cb->ect & q->ecn_mask) != 0;
 	return;
 
 not_ecn:
-	/* Not ECN capable or not non pullable/writable packets can only be
-	 * dropped hence go the the classic queue.
+	/* Non pullable/writable packets can only be dropped hence are
+	 * classified as not ECT.
 	 */
 	cb->ect = INET_ECN_NOT_ECT;
-	cb->l4s = 0;
 }
 
+static int dualpi2_skb_classify(struct dualpi2_sched_data *q,
+				 struct sk_buff *skb)
+{
+	struct dualpi2_skb_cb *cb = dualpi2_skb_cb(skb);
+	struct tcf_result res;
+	struct tcf_proto *fl;
+	int result;
+
+	dualpi2_read_ect(skb);
+	if (cb->ect & q->ecn_mask) {
+		cb->classified = DUALPI2_C_L4S;
+		return NET_XMIT_SUCCESS;
+	}
+
+	if (TC_H_MAJ(skb->priority) == q->sch->handle &&
+	    TC_H_MIN(skb->priority) < __DUALPI2_C_MAX) {
+		cb->classified = TC_H_MIN(skb->priority);
+		return NET_XMIT_SUCCESS;
+	    }
+
+	fl = rcu_dereference_bh(q->tcf.filters);
+	if (!fl) {
+		cb->classified = DUALPI2_C_CLASSIC;
+		return NET_XMIT_SUCCESS;
+	}
+
+	result = tcf_classify(skb, fl, &res, false);
+	if (result >= 0) {
+#ifdef CONFIG_NET_CLS_ACT
+		switch (result) {
+		case TC_ACT_STOLEN:
+		case TC_ACT_QUEUED:
+		case TC_ACT_TRAP:
+			return NET_XMIT_SUCCESS | __NET_XMIT_STOLEN;
+		case TC_ACT_SHOT:
+			return NET_XMIT_SUCCESS | __NET_XMIT_BYPASS;
+		}
+#endif
+		cb->classified = TC_H_MIN(res.classid) < __DUALPI2_C_MAX ?
+			TC_H_MIN(res.classid) : DUALPI2_C_CLASSIC;
+	}
+	return NET_XMIT_SUCCESS;
+}
+
+static int dualpi2_enqueue_skb(struct sk_buff *skb, struct Qdisc *sch,
+			       struct sk_buff **to_free)
+{
+	struct dualpi2_sched_data *q = qdisc_priv(sch);
+	struct dualpi2_skb_cb *cb;
+
+	if (unlikely(qdisc_qlen(sch) >= sch->limit)) {
+		qdisc_qstats_overlimit(sch);
+		if (skb_in_l_queue(skb))
+			qdisc_qstats_overlimit(q->l_queue);
+		return qdisc_drop(skb, sch, to_free);
+	}
+
+	if (q->drop_early && must_drop(sch, q, skb)) {
+		qdisc_drop(skb, sch, to_free);
+		return NET_XMIT_SUCCESS | __NET_XMIT_BYPASS;
+	}
+
+	cb = dualpi2_skb_cb(skb);
+	cb->ts = ktime_get_ns();
+
+	if (qdisc_qlen(sch) > q->maxq)
+		q->maxq = qdisc_qlen(sch);
+
+	if (skb_in_l_queue(skb)) {
+		/* Only apply the step if a queue is building up */
+		dualpi2_skb_cb(skb)->apply_step =
+			skb_is_l4s(skb) && qdisc_qlen(q->l_queue) > 1;
+		/* Keep the overall qdisc stats consistent */
+		++sch->q.qlen;
+		qdisc_qstats_backlog_inc(sch, skb);
+		++q->packets_in_l;
+		if (!q->l_head_ts)
+			q->l_head_ts = cb->ts;
+		return qdisc_enqueue_tail(skb, q->l_queue);
+	}
+	++q->packets_in_c;
+	if (!q->c_head_ts)
+		q->c_head_ts = cb->ts;
+	return qdisc_enqueue_tail(skb, sch);
+}
+
+/* Optionally, dualpi2 will split GSO skbs into independent skbs and enqueue
+ * each of those individually. This yields the following benefits, at the
+ * expense of CPU usage:
+ * - Finer-grained AQM actions as the sub-packets of a burst no longer share the
+ *   same fate (e.g., the random mark/drop probability is applied individually)
+ * - Improved precision of the starvation protection/WRR scheduler at dequeue,
+ *   as the size of the dequeued packets will be smaller.
+ */
 static int dualpi2_qdisc_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 				 struct sk_buff **to_free)
 {
 	struct dualpi2_sched_data *q = qdisc_priv(sch);
 	int err;
 
-	if (unlikely(qdisc_qlen(sch) >= sch->limit)) {
-		qdisc_qstats_overlimit(sch);
-		err = NET_XMIT_DROP;
-		goto drop;
+	err = dualpi2_skb_classify(q, skb);
+	if (err != NET_XMIT_SUCCESS) {
+		if (err & __NET_XMIT_BYPASS)
+			qdisc_qstats_drop(sch);
+		__qdisc_drop(skb, to_free);
+		return err;
 	}
 
-	dualpi2_skb_classify(q, skb);
+	if (q->split_gso && skb_is_gso(skb)) {
+		netdev_features_t features;
+		struct sk_buff *nskb, *next;
+		int cnt, byte_len, orig_len;
+		int err;
 
-	if (q->drop_early && must_drop(sch, q, skb)) {
-		err = NET_XMIT_SUCCESS | __NET_XMIT_BYPASS;
-		goto drop;
+		features = netif_skb_features(skb);
+		nskb = skb_gso_segment(skb, features & ~NETIF_F_GSO_MASK);
+		if (IS_ERR_OR_NULL(nskb))
+			return qdisc_drop(skb, sch, to_free);
+
+		cnt = 1;
+		byte_len = 0;
+		orig_len = qdisc_pkt_len(skb);
+		while (nskb) {
+			next = nskb->next;
+			skb_mark_not_on_list(nskb);
+			qdisc_skb_cb(nskb)->pkt_len = nskb->len;
+			dualpi2_skb_cb(nskb)->classified =
+				dualpi2_skb_cb(skb)->classified;
+			dualpi2_skb_cb(nskb)->ect = dualpi2_skb_cb(skb)->ect;
+			err = dualpi2_enqueue_skb(nskb, sch, to_free);
+			if (err == NET_XMIT_SUCCESS) {
+				/* Compute the backlog adjustement that needs
+				 * to be propagated in the qdisc tree to reflect
+				 * all new skbs successfully enqueued.
+				 */
+				++cnt;
+				byte_len += nskb->len;
+			}
+			nskb = next;
+		}
+		if (err == NET_XMIT_SUCCESS) {
+			/* The caller will add the original skb stats to its
+			 * backlog, compensate this.
+			 */
+			--cnt;
+			byte_len -= orig_len;
+		}
+		qdisc_tree_reduce_backlog(sch, -cnt, -byte_len);
+		consume_skb(skb);
+		return err;
 	}
-
-	dualpi2_skb_cb(skb)->ts = ktime_get_ns();
-
-	if (qdisc_qlen(sch) > q->maxq)
-		q->maxq = qdisc_qlen(sch);
-
-	if (skb_is_l4s(skb)) {
-		/* Only apply the step if a queue is building up */
-		dualpi2_skb_cb(skb)->apply_step = qdisc_qlen(q->l_queue) > 1;
-		/* Keep the overall qdisc stats consistent */
-		++sch->q.qlen;
-		qdisc_qstats_backlog_inc(sch, skb);
-		++q->packets_in_l;
-		return qdisc_enqueue_tail(skb, q->l_queue);
-	}
-	++q->packets_in_c;
-	return qdisc_enqueue_tail(skb, sch);
-
-drop:
-	qdisc_drop(skb, sch, to_free);
-	return err;
+	return dualpi2_enqueue_skb(skb, sch, to_free);
 }
 
 /* Select the queue from which the next packet can be dequeued, ensuring that
@@ -342,24 +491,22 @@ static struct sk_buff *dequeue_packet(struct Qdisc *sch,
 				      u64 now)
 {
 	struct sk_buff *skb = NULL;
+	int c_len;
 
 	*credit_change = 0;
-	WRITE_ONCE(q->qdelay_l, qdelay_in_ns(q->l_queue, now));
-	WRITE_ONCE(q->qdelay_c, qdelay_in_ns(sch, now));
-	/* From this point onwards, each queue's q->qdelay_* reflects the
-	 * current queuing delay of the head of the queue, thus also tracks
-	 * whether the queue is empty or not. */
-
-	if (q->qdelay_l && (!q->qdelay_c || q->c_protection.credit <= 0)) {
+	c_len = qdisc_qlen(sch) - qdisc_qlen(q->l_queue);
+	if (qdisc_qlen(q->l_queue) && (!c_len || q->c_protection.credit <= 0)) {
 		skb = __qdisc_dequeue_head(&q->l_queue->q);
-		if (q->qdelay_c)
+		WRITE_ONCE(q->l_head_ts, head_enqueue_time(q->l_queue));
+		if (c_len)
 			*credit_change = q->c_protection.wc;
 		qdisc_qstats_backlog_dec(q->l_queue, skb);
 		/* Keep the global queue size consistent */
 		--sch->q.qlen;
-	} else if (q->qdelay_c) {
+	} else if (c_len) {
 		skb = __qdisc_dequeue_head(&sch->q);
-		if (q->qdelay_l)
+		WRITE_ONCE(q->c_head_ts, head_enqueue_time(sch));
+		if (qdisc_qlen(q->l_queue))
 			*credit_change = (s32)(-1) * q->c_protection.wl;
 	} else {
 		dualpi2_reset_c_protection(q);
@@ -367,11 +514,10 @@ static struct sk_buff *dequeue_packet(struct Qdisc *sch,
 	}
 	*credit_change *= qdisc_pkt_len(skb);
 	qdisc_qstats_backlog_dec(sch, skb);
-
 	return skb;
 }
 
-static void do_step_aqm(struct dualpi2_sched_data *q, struct sk_buff *skb,
+static int do_step_aqm(struct dualpi2_sched_data *q, struct sk_buff *skb,
 			u64 now)
 {
 	u64 qdelay = 0;
@@ -381,11 +527,15 @@ static void do_step_aqm(struct dualpi2_sched_data *q, struct sk_buff *skb,
 	else
 		qdelay = skb_sojourn_time(skb, now);
 
-	if (dualpi2_skb_cb(skb)->apply_step && qdelay > q->step.thresh &&
-	    dualpi2_mark(q, skb))
-		++q->step_marks;
-
+	if (dualpi2_skb_cb(skb)->apply_step && qdelay > q->step.thresh) {
+		if (!dualpi2_skb_cb(skb)->ect)
+			/* Drop this non-ECT packet */
+			return 1;
+		if (dualpi2_mark(q, skb))
+			++q->step_marks;
+	}
 	qdisc_bstats_update(q->l_queue, skb);
+	return 0;
 }
 
 static struct sk_buff *dualpi2_qdisc_dequeue(struct Qdisc *sch)
@@ -402,16 +552,13 @@ pick_packet:
 	if (!skb)
 		goto exit;
 
-	if (!q->drop_early && must_drop(sch, q, skb)) {
-		++q->deferred_drops.cnt;
-		q->deferred_drops.len += qdisc_pkt_len(skb);
-		consume_skb(skb);
-		qdisc_qstats_drop(sch);
-		goto pick_packet;
-	}
+	if (!q->drop_early && must_drop(sch, q, skb))
+		goto drop_and_retry;
 
-	if (skb_is_l4s(skb))
-		do_step_aqm(q, skb, now);
+	if (skb_in_l_queue(skb) && do_step_aqm(q, skb, now)) {
+		qdisc_qstats_drop(q->l_queue);
+		goto drop_and_retry;
+	}
 
 	q->c_protection.credit += credit_change;
 	qdisc_bstats_update(sch, skb);
@@ -427,6 +574,13 @@ exit:
 		q->deferred_drops.len = 0;
 	}
 	return skb;
+
+drop_and_retry:
+	++q->deferred_drops.cnt;
+	q->deferred_drops.len += qdisc_pkt_len(skb);
+	consume_skb(skb);
+	qdisc_qstats_drop(sch);
+	goto pick_packet;
 }
 
 static s64 __scale_delta(u64 diff)
@@ -435,14 +589,30 @@ static s64 __scale_delta(u64 diff)
 	return diff;
 }
 
+static void get_queue_delays(struct dualpi2_sched_data *q, u64 *qdelay_c,
+			     u64 *qdelay_l)
+{
+	u64 now, qc, ql;
+
+	now = ktime_get_ns();
+	qc = READ_ONCE(q->c_head_ts);
+	ql = READ_ONCE(q->l_head_ts);
+
+	*qdelay_c = qc ? now - qc : 0;
+	*qdelay_l = ql ? now - ql : 0;
+}
+
 static u32 calculate_probability(struct Qdisc *sch)
 {
 	struct dualpi2_sched_data *q = qdisc_priv(sch);
 	u32 new_prob;
+	u64 qdelay_c;
+	u64 qdelay_l;
 	u64 qdelay;
 	s64 delta;
 
-	qdelay = max_t(u64, q->qdelay_c, q->qdelay_l);
+	get_queue_delays(q, &qdelay_c, &qdelay_l);
+	qdelay = max(qdelay_l, qdelay_c);
 	/* Alpha and beta take at most 32b, i.e, the delay difference would
 	 * overflow for queuing delay differences > ~4.2sec.
 	 */
@@ -489,6 +659,7 @@ static const struct nla_policy dualpi2_policy[TCA_DUALPI2_MAX + 1] = {
 	[TCA_DUALPI2_DROP_EARLY] = {.type = NLA_U8},
 	[TCA_DUALPI2_C_PROTECTION] = {.type = NLA_U8},
 	[TCA_DUALPI2_ECN_MASK] = {.type = NLA_U8},
+	[TCA_DUALPI2_SPLIT_GSO] = {.type = NLA_U8},
 };
 
 static int dualpi2_change(struct Qdisc *sch, struct nlattr *opt,
@@ -574,13 +745,13 @@ static int dualpi2_change(struct Qdisc *sch, struct nlattr *opt,
 	}
 
 	if (tb[TCA_DUALPI2_STEP_PACKETS])
-		q->step.in_packets = nla_get_u8(tb[TCA_DUALPI2_STEP_PACKETS]);
+		q->step.in_packets = !!nla_get_u8(tb[TCA_DUALPI2_STEP_PACKETS]);
 
 	if (tb[TCA_DUALPI2_DROP_OVERLOAD])
-		q->drop_overload = nla_get_u8(tb[TCA_DUALPI2_DROP_OVERLOAD]);
+		q->drop_overload = !!nla_get_u8(tb[TCA_DUALPI2_DROP_OVERLOAD]);
 
 	if (tb[TCA_DUALPI2_DROP_EARLY])
-		q->drop_early = nla_get_u8(tb[TCA_DUALPI2_DROP_EARLY]);
+		q->drop_early = !!nla_get_u8(tb[TCA_DUALPI2_DROP_EARLY]);
 
 	if (tb[TCA_DUALPI2_C_PROTECTION]) {
 		u8 wc = nla_get_u8(tb[TCA_DUALPI2_C_PROTECTION]);
@@ -596,6 +767,9 @@ static int dualpi2_change(struct Qdisc *sch, struct nlattr *opt,
 
 	if (tb[TCA_DUALPI2_ECN_MASK])
 		q->ecn_mask = nla_get_u8(tb[TCA_DUALPI2_ECN_MASK]);
+
+	if (tb[TCA_DUALPI2_SPLIT_GSO])
+		q->split_gso = !!nla_get_u8(tb[TCA_DUALPI2_SPLIT_GSO]);
 
 	old_qlen = qdisc_qlen(sch);
 	old_backlog = sch->qstats.backlog;
@@ -631,17 +805,23 @@ static void dualpi2_reset_default(struct dualpi2_sched_data *q)
 	q->coupling_factor = 2;		/* window fairness for equal RTTs */
 	q->drop_overload = true;	/* Preserve latency by dropping */
 	q->drop_early = false;		/* PI2 drops on dequeue */
+	q->split_gso = true;
 }
 
 static int dualpi2_init(struct Qdisc *sch, struct nlattr *opt,
 			struct netlink_ext_ack *extack)
 {
 	struct dualpi2_sched_data *q = qdisc_priv(sch);
+	int err;
 
 	q->l_queue = qdisc_create_dflt(sch->dev_queue, &pfifo_qdisc_ops,
 				       TC_H_MAKE(sch->handle, 1), extack);
 	if (!q->l_queue)
 		return -ENOMEM;
+
+	err = tcf_block_get(&q->tcf.block, &q->tcf.filters, sch, extack);
+	if (err)
+		return err;
 
 	q->sch = sch;
 	dualpi2_reset_default(q);
@@ -649,7 +829,7 @@ static int dualpi2_init(struct Qdisc *sch, struct nlattr *opt,
 	q->pi2.timer.function = dualpi2_timer;
 
 	if (opt) {
-		int err = dualpi2_change(sch, opt, extack);
+		err = dualpi2_change(sch, opt, extack);
 
 		if (err)
 			return err;
@@ -691,7 +871,8 @@ static int dualpi2_dump(struct Qdisc *sch, struct sk_buff *skb)
 	    nla_put_u8(skb, TCA_DUALPI2_STEP_PACKETS, q->step.in_packets) ||
 	    nla_put_u8(skb, TCA_DUALPI2_DROP_EARLY, q->drop_early) ||
 	    nla_put_u8(skb, TCA_DUALPI2_C_PROTECTION, q->c_protection.wc) ||
-	    nla_put_u8(skb, TCA_DUALPI2_ECN_MASK, q->ecn_mask))
+	    nla_put_u8(skb, TCA_DUALPI2_ECN_MASK, q->ecn_mask) ||
+	    nla_put_u8(skb, TCA_DUALPI2_SPLIT_GSO, q->split_gso))
 		goto nla_put_failure;
 
 	return nla_nest_end(skb, opts);
@@ -705,17 +886,19 @@ static int dualpi2_dump_stats(struct Qdisc *sch, struct gnet_dump *d)
 {
 	struct dualpi2_sched_data *q = qdisc_priv(sch);
 	struct tc_dualpi2_xstats st = {
-		.prob		= q->pi2.prob,
+		.prob		= READ_ONCE(q->pi2.prob),
 		.packets_in_c	= q->packets_in_c,
 		.packets_in_l	= q->packets_in_l,
 		.maxq		= q->maxq,
 		.ecn_mark	= q->ecn_mark,
 		.credit		= q->c_protection.credit,
 		.step_marks	= q->step_marks,
-		.delay_c	= convert_ns_to_usec(q->qdelay_c),
-		.delay_l	= convert_ns_to_usec(q->qdelay_l),
 	};
+	u64 qc, ql;
 
+	get_queue_delays(q, &qc, &ql);
+	st.delay_l = convert_ns_to_usec(ql);
+	st.delay_c = convert_ns_to_usec(qc);
 	return gnet_stats_copy_app(d, &st, sizeof(st));
 }
 
@@ -725,8 +908,8 @@ static void dualpi2_reset(struct Qdisc *sch)
 
 	qdisc_reset_queue(sch);
 	qdisc_reset_queue(q->l_queue);
-	q->qdelay_c = 0;
-	q->qdelay_l = 0;
+	q->c_head_ts = 0;
+	q->l_head_ts = 0;
 	q->pi2.prob = 0;
 	q->packets_in_c = 0;
 	q->packets_in_l = 0;
@@ -744,10 +927,73 @@ static void dualpi2_destroy(struct Qdisc *sch)
 	hrtimer_cancel(&q->pi2.timer);
 	if (q->l_queue)
 		qdisc_put(q->l_queue);
+	tcf_block_put(q->tcf.block);
 }
 
+static struct Qdisc *dualpi2_leaf(struct Qdisc *sch, unsigned long arg)
+{
+	return NULL;
+}
+
+static unsigned long dualpi2_find(struct Qdisc *sch, u32 classid)
+{
+	return 0;
+}
+
+static unsigned long dualpi2_bind(struct Qdisc *sch, unsigned long parent,
+				  u32 classid)
+{
+	return 0;
+}
+
+static void dualpi2_unbind(struct Qdisc *q, unsigned long cl)
+{
+}
+
+static struct tcf_block *dualpi2_tcf_block(struct Qdisc *sch, unsigned long cl,
+					   struct netlink_ext_ack *extack)
+{
+	struct dualpi2_sched_data *q = qdisc_priv(sch);
+
+	if (cl)
+		return NULL;
+	return q->tcf.block;
+}
+
+static void dualpi2_walk(struct Qdisc *sch, struct qdisc_walker *arg)
+{
+	unsigned int i;
+
+	if (arg->stop)
+		return;
+
+	/* We statically define only 2 queues */
+	for (i = 0; i < 2; i++) {
+		if (arg->count < arg->skip) {
+			arg->count++;
+			continue;
+		}
+		if (arg->fn(sch, i + 1, arg) < 0) {
+			arg->stop = 1;
+			break;
+		}
+		arg->count++;
+	}
+}
+
+/* Minimal class support to handler tc filters */
+static const struct Qdisc_class_ops dualpi2_class_ops = {
+	.leaf		=	dualpi2_leaf,
+	.find		=	dualpi2_find,
+	.tcf_block	=	dualpi2_tcf_block,
+	.bind_tcf	=	dualpi2_bind,
+	.unbind_tcf	=	dualpi2_unbind,
+	.walk		=	dualpi2_walk,
+};
+
 static struct Qdisc_ops dualpi2_qdisc_ops __read_mostly = {
-	.id = "dualpi2",
+	.id		= "dualpi2",
+	.cl_ops		= &dualpi2_class_ops,
 	.priv_size	= sizeof(struct dualpi2_sched_data),
 	.enqueue	= dualpi2_qdisc_enqueue,
 	.dequeue	= dualpi2_qdisc_dequeue,
@@ -780,3 +1026,4 @@ MODULE_AUTHOR("Olga Albisser");
 MODULE_AUTHOR("Henrik Steen");
 MODULE_AUTHOR("Olivier Tilmans");
 MODULE_LICENSE("GPL");
+MODULE_VERSION("1.0");

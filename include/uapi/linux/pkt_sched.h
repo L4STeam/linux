@@ -1196,6 +1196,7 @@ enum {
 	TCA_DUALPI2_DROP_EARLY,		/* Whether to drop on enqueue */
 	TCA_DUALPI2_C_PROTECTION,	/* Percentage */
 	TCA_DUALPI2_ECN_MASK,		/* L4S queue classification mask */
+	TCA_DUALPI2_SPLIT_GSO,		/* Split GSO packets at enqueue */
 	TCA_DUALPI2_PAD,
 	__TCA_DUALPI2_MAX
 };
