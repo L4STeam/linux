@@ -402,6 +402,7 @@ static void tcp_ecn_rcv_synack(struct sock *sk, const struct tcphdr *th,
 		tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
 		tp->syn_ect_rcv = ip_dsfield & INET_ECN_MASK;
 		tp->ect_reflector_snd = 1;
+		tp->accecn_opt_demand = 1;
 		tcp_accecn_validate_syn_feedback(sk, ace, tp->syn_ect_snt);
 		break;
 	}
@@ -416,6 +417,7 @@ static void tcp_ecn_rcv_syn(struct tcp_sock *tp, const struct tcphdr *th,
 			tcp_ecn_mode_set(tp, TCP_ECN_MODE_RFC3168);
 		} else {
 			tp->syn_ect_rcv = TCP_SKB_CB(skb)->ip_dsfield & INET_ECN_MASK;
+			tp->prev_ecnfield = tp->syn_ect_rcv;
 			tp->ect_reflector_snd = 1;
 			tp->ect_reflector_rcv = 1;
 			tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
@@ -3602,10 +3604,17 @@ static void tcp_snd_una_update(struct tcp_sock *tp, u32 ack)
 static void tcp_rcv_nxt_update(struct tcp_sock *tp, u32 seq)
 {
 	u32 delta = seq - tp->rcv_nxt;
+	u64 old_bytes_received = tp->bytes_received;
 
 	sock_owned_by_me((struct sock *)tp);
 	tp->bytes_received += delta;
 	WRITE_ONCE(tp->rcv_nxt, seq);
+
+	/* Demand AccECN option at least every 2^22 bytes to avoid
+	 * overflowing the ECN byte counters.
+	 */
+	if ((tp->bytes_received ^ old_bytes_received) & ~((1 << 22) - 1))
+		tp->accecn_opt_demand = max_t(u8, 1, tp->accecn_opt_demand);
 }
 
 /* Update our send window.
@@ -5709,6 +5718,7 @@ void tcp_ecn_received_counters(struct sock *sk, const struct sk_buff *skb,
 	struct tcp_sock *tp = tcp_sk(sk);
 	u8 ecnfield = TCP_SKB_CB(skb)->ip_dsfield & INET_ECN_MASK;
 	u8 is_ce = INET_ECN_is_ce(ecnfield);
+	u8 ecn_edge = tp->prev_ecnfield != ecnfield;
 
 	if (!INET_ECN_is_not_ect(ecnfield)) {
 		tp->ecn_flags |= TCP_ECN_SEEN;
@@ -5719,6 +5729,19 @@ void tcp_ecn_received_counters(struct sock *sk, const struct sk_buff *skb,
 			u8 minlen = tcp_ecn_field_to_accecn_len(ecnfield);
 			tp->received_ecn_bytes[ecnfield - 1] += payload_len;
 			tp->accecn_minlen = max_t(u8, tp->accecn_minlen, minlen);
+		}
+	}
+
+	if (ecn_edge || is_ce) {
+		tp->prev_ecnfield = ecnfield;
+		/* Demand Accurate ECN change-triggered ACKs. Two ACK are
+		 * demanded to indicate unambiguously the ecnfield value
+		 * in the latter ACK.
+		 */
+		if (tcp_ecn_mode_accecn(tp)) {
+			if (ecn_edge)
+				inet_csk(sk)->icsk_ack.pending |= ICSK_ACK_NOW;
+			tp->accecn_opt_demand = 2;
 		}
 	}
 }
@@ -5840,6 +5863,8 @@ syn_challenge:
 		if (syn_inerr)
 			TCP_INC_STATS(sock_net(sk), TCP_MIB_INERRS);
 		NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPSYNCHALLENGE);
+		if (tcp_ecn_mode_accecn(tp))
+			tp->accecn_opt_demand = max_t(u8, 1, tp->accecn_opt_demand);
 		tcp_send_challenge_ack(sk, skb);
 		goto discard;
 	}

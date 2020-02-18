@@ -435,6 +435,7 @@ static void tcp_ecn_openreq_child(struct sock *sk,
 	if (treq->accecn_ok) {
 		const struct tcphdr *th = (const struct tcphdr *)skb->data;
 		tcp_accecn_third_ack(sk, skb, treq->syn_ect_snt);
+		tp->prev_ecnfield = treq->syn_ect_rcv;
 		tcp_ecn_received_counters(sk, skb, skb->len - th->doff * 4);
 	} else {
 		tcp_ecn_mode_set(tp, inet_rsk(req)->ecn_ok ?
