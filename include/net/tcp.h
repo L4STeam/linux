@@ -225,6 +225,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo);
 					 TCPOLEN_ACCECN_PERCOUNTER * \
 					 TCP_ACCECN_NUMCOUNTERS)
 #define TCP_ACCECN_BEACON_FREQ_SHIFT	2 /* Send option at least 2^2 times per RTT */
+#define TCP_ACCECN_SAFETY_SHIFT	1	/* SAFETY_FACTOR in accecn draft */
 
 /* Flags in tp->nonagle */
 #define TCP_NAGLE_OFF		1	/* Nagle's algo is disabled */

@@ -460,7 +460,8 @@ static struct {
 	{ INET_ECN_ECT_1, TCP_ACCECN_E1B_INIT_OFFSET }
 };
 
-static void tcp_accecn_process_option(struct tcp_sock *tp,
+/* Returns true if the byte counters can be used */
+static bool tcp_accecn_process_option(struct tcp_sock *tp,
 				      const struct sk_buff *skb,
 				      u32 delivered_bytes)
 {
@@ -468,9 +469,10 @@ static void tcp_accecn_process_option(struct tcp_sock *tp,
 	unsigned int optlen;
 	int i;
 	int ambiguous_ecn_bytes_incr;
+	bool res;
 
 	if (tp->rx_opt.accecn_fail)
-		return;
+		return false;
 
 	if (tp->rx_opt.accecn < 0) {
 		if (!tp->saw_accecn_opt) {
@@ -479,19 +481,22 @@ static void tcp_accecn_process_option(struct tcp_sock *tp,
 			 */
 			if (tp->bytes_sent >= (1 << 23) - 1)
 				tp->rx_opt.accecn_fail = 1;
-			return;
+			return false;
 		}
 
-		if (tp->estimate_ecnfield)
+		if (tp->estimate_ecnfield) {
 			tp->delivered_ecn_bytes[tp->estimate_ecnfield - 1] +=
 				delivered_bytes;
-		return;
+			return true;
+		}
+		return false;
 	} else {
 		if (!tp->saw_accecn_opt)
 			tp->accecn_orderbit = tp->rx_opt.accecn_orderbit;
 		tp->saw_accecn_opt = 1;
 	}
 
+	res = !!tp->estimate_ecnfield;
 	tp->estimate_ecnfield = 0;
 
 	ptr = skb_transport_header(skb) + tp->rx_opt.accecn;
@@ -523,6 +528,8 @@ static void tcp_accecn_process_option(struct tcp_sock *tp,
 	}
 	if (ambiguous_ecn_bytes_incr)
 		tp->estimate_ecnfield = 0;
+
+	return res;
 }
 
 static bool tcp_accecn_rcv_reflector(struct tcp_sock *tp,
@@ -541,14 +548,16 @@ static bool tcp_accecn_rcv_reflector(struct tcp_sock *tp,
 static u32 tcp_accecn_process(struct tcp_sock *tp, const struct sk_buff *skb,
 			      u32 delivered_pkts, u32 delivered_bytes, int flag)
 {
-	u32 delta, safe_delta;
+	u32 delta, safe_delta, d_ceb;
 	u32 corrected_ace;
+	u32 old_ceb = tp->delivered_ecn_bytes[INET_ECN_CE - 1];
+	bool counters_valid;
 
 	/* Reordered ACK? (...or uncertain due to lack of data to send and ts) */
 	if (!(flag & (FLAG_FORWARD_PROGRESS|FLAG_TS_PROGRESS)))
 		return 0;
 
-	tcp_accecn_process_option(tp, skb, delivered_bytes);
+	counters_valid = tcp_accecn_process_option(tp, skb, delivered_bytes);
 
 	if (!(flag & FLAG_SLOWPATH)) {
 		/* AccECN counter might overflow on large ACKs */
@@ -572,6 +581,15 @@ static u32 tcp_accecn_process(struct tcp_sock *tp, const struct sk_buff *skb,
 	safe_delta = delivered_pkts -
 		     ((delivered_pkts - delta) & TCP_ACCECN_CEP_ACE_MASK);
 
+	if (counters_valid) {
+		d_ceb = tp->delivered_ecn_bytes[INET_ECN_CE - 1] - old_ceb;
+		if (!d_ceb)
+			return delta;
+		if (d_ceb > delta * tp->mss_cache)
+			return safe_delta;
+		if (d_ceb < safe_delta * tp->mss_cache >> TCP_ACCECN_SAFETY_SHIFT)
+			return delta;
+	}
 
 	return safe_delta;
 }
