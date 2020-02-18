@@ -2114,8 +2114,16 @@ static bool tcp_snd_wnd_test(const struct tcp_sock *tp,
 	return !after(end_seq, tcp_wnd_end(tp));
 }
 
+/* Runaway ACE deficit possible? */
+static bool tcp_accecn_deficit_runaway_test(const struct tcp_sock *tp,
+					    int cwnd_quota)
+{
+	return (tcp_accecn_ace_deficit(tp) >= 2 * TCP_ACCECN_ACE_MAX_DELTA) &&
+	       (cwnd_quota > TCP_ACCECN_ACE_MAX_DELTA - 1);
+}
+
 static u32 tcp_accecn_gso_limit(struct tcp_sock *tp,
-				const struct sk_buff *skb)
+				const struct sk_buff *skb, int cwnd_quota)
 {
 	/* Handshake reflector and GSO are not compatible because
 	 * ACE field changes.
@@ -2123,6 +2131,10 @@ static u32 tcp_accecn_gso_limit(struct tcp_sock *tp,
 	if (unlikely(tp->ect_reflector_snd &&
 		     tcp_accecn_use_reflector(tp, skb)))
 		return 1;
+
+	if (unlikely(tcp_accecn_deficit_runaway_test(tp, cwnd_quota)))
+		return TCP_ACCECN_ACE_MAX_DELTA - 1;
+
 	return 0;
 }
 
@@ -2681,7 +2693,8 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
 				break;
 		} else {
 			if (accecn_gso_limit) {
-				u32 limit = tcp_accecn_gso_limit(tp, skb);
+				u32 limit = tcp_accecn_gso_limit(tp, skb,
+								 cwnd_quota);
 				if (limit > 0)
 					cwnd_quota = limit;
 				else
