@@ -608,6 +608,7 @@ static void tcp_options_write(__be32 *ptr, struct tcp_sock *tp,
 		}
 		if (tp != NULL) {
 			tp->accecn_minlen = 0;
+			tp->accecn_opt_tstamp = tp->tcp_mstamp;
 			if (tp->accecn_opt_demand)
 				tp->accecn_opt_demand--;
 		}
@@ -995,11 +996,16 @@ static unsigned int tcp_established_options(struct sock *sk, struct sk_buff *skb
 		}
 	}
 
-	if (tcp_ecn_mode_accecn(tp) && tp->accecn_opt_demand) {
-		opts->ecn_bytes = tp->received_ecn_bytes;
-		size += tcp_options_fit_accecn(opts, tp->accecn_minlen,
-					       MAX_TCP_OPTION_SPACE - size,
-					       opts->num_sack_blocks > 0 ? 2 : 0);
+	if (tcp_ecn_mode_accecn(tp)) {
+		if (tp->accecn_opt_demand ||
+		    (tcp_stamp_us_delta(tp->tcp_mstamp, tp->accecn_opt_tstamp) >=
+		     (tp->srtt_us >> (3 + TCP_ACCECN_BEACON_FREQ_SHIFT)))) {
+			opts->ecn_bytes = tp->received_ecn_bytes;
+			size += tcp_options_fit_accecn(opts, tp->accecn_minlen,
+						       MAX_TCP_OPTION_SPACE - size,
+						       opts->num_sack_blocks > 0 ?
+						       2 : 0);
+		}
 	}
 
 	return size;
