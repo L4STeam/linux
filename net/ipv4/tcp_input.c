@@ -402,6 +402,7 @@ static void tcp_ecn_rcv_synack(struct sock *sk, const struct tcphdr *th,
 		tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
 		tp->syn_ect_rcv = ip_dsfield & INET_ECN_MASK;
 		tp->ect_reflector_snd = 1;
+		tp->saw_accecn_opt = !!(tp->rx_opt.accecn >= 0);
 		tp->accecn_opt_demand = 1;
 		tcp_accecn_validate_syn_feedback(sk, ace, tp->syn_ect_snt);
 		break;
@@ -468,11 +469,25 @@ static void tcp_accecn_process_option(struct tcp_sock *tp,
 	int i;
 	int ambiguous_ecn_bytes_incr;
 
+	if (tp->rx_opt.accecn_fail)
+		return;
+
 	if (tp->rx_opt.accecn < 0) {
+		if (!tp->saw_accecn_opt) {
+			/* Too late to enable after this point due to
+			 * potential counter wraps
+			 */
+			if (tp->bytes_sent >= (1 << 23) - 1)
+				tp->rx_opt.accecn_fail = 1;
+			return;
+		}
+
 		if (tp->estimate_ecnfield)
 			tp->delivered_ecn_bytes[tp->estimate_ecnfield - 1] +=
 				delivered_bytes;
 		return;
+	} else {
+		tp->saw_accecn_opt = 1;
 	}
 
 	tp->estimate_ecnfield = 0;
@@ -4225,6 +4240,7 @@ void tcp_parse_options(const struct net *net,
 				    get_unaligned_be16(ptr) ==
 				    TCPOPT_ACCECN_MAGIC)
 					opt_rx->accecn = (ptr - 2) - (unsigned char *)th;
+
 				/* Fast Open option shares code 254 using a
 				 * 16 bits magic number.
 				 */

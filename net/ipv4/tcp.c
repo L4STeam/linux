@@ -2624,6 +2624,7 @@ int tcp_disconnect(struct sock *sk, int flags)
 	tp->window_clamp = 0;
 	tp->ect_reflector_snd = 0;
 	tp->ect_reflector_rcv = 0;
+	tp->saw_accecn_opt = 0;
 	tp->ecn_fail = 0;
 	tcp_accecn_init_counters(tp);
 	tcp_set_ca_state(sk, TCP_CA_Open);
@@ -2664,6 +2665,7 @@ int tcp_disconnect(struct sock *sk, int flags)
 	tp->rx_opt.saw_tstamp = 0;
 	tp->rx_opt.dsack = 0;
 	tp->rx_opt.num_sacks = 0;
+	tp->rx_opt.accecn_fail = 0;
 	tp->rcv_ooopack = 0;
 
 

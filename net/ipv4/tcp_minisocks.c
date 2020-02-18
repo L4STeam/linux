@@ -435,6 +435,7 @@ static void tcp_ecn_openreq_child(struct sock *sk,
 	if (treq->accecn_ok) {
 		const struct tcphdr *th = (const struct tcphdr *)skb->data;
 		tcp_accecn_third_ack(sk, skb, treq->syn_ect_snt);
+		tp->saw_accecn_opt = treq->saw_accecn_opt;
 		tp->prev_ecnfield = treq->syn_ect_rcv;
 		tcp_ecn_received_counters(sk, skb, skb->len - th->doff * 4);
 	} else {
@@ -787,6 +788,9 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 	 */
 	if (!(flg & TCP_FLAG_ACK))
 		return NULL;
+
+	if (tmp_opt.accecn >= 0)
+		tcp_rsk(req)->saw_accecn_opt = 1;
 
 	/* For Fast Open no more processing is needed (sk is the
 	 * child socket).
