@@ -369,6 +369,8 @@ static inline void tcp_dec_quickack_mode(struct sock *sk,
 #define	TCP_ECN_SEEN		0x8
 #define TCP_ECN_MODE_ACCECN	0x10
 
+#define TCP_ECN_SEEN_SHIFT	3
+
 #define TCP_ECN_DISABLED	0
 #define TCP_ECN_MODE_PENDING	(TCP_ECN_MODE_RFC3168|TCP_ECN_MODE_ACCECN)
 #define TCP_ECN_MODE_ANY	(TCP_ECN_MODE_RFC3168|TCP_ECN_MODE_ACCECN)
@@ -402,6 +404,16 @@ static inline void tcp_ecn_mode_set(struct tcp_sock *tp, u8 mode)
 {
 	tp->ecn_flags &= ~TCP_ECN_MODE_ANY;
 	tp->ecn_flags |= mode;
+}
+
+static inline u8 tcp_accecn_ace(const struct tcphdr *th)
+{
+	return (th->ae << 2) | (th->cwr << 1) | th->ece;
+}
+
+static inline u32 tcp_accecn_ace_deficit(const struct tcp_sock *tp)
+{
+	return tp->received_ce - tp->received_ce_tx;
 }
 
 enum tcp_tw_status {
@@ -832,6 +844,21 @@ static inline u64 tcp_skb_timestamp_us(const struct sk_buff *skb)
 
 #define TCPHDR_ACE (TCPHDR_ECE | TCPHDR_CWR | TCPHDR_AE)
 #define TCPHDR_SYN_ECN	(TCPHDR_SYN | TCPHDR_ECE | TCPHDR_CWR)
+
+#define TCP_ACCECN_CEP_ACE_MASK 0x7
+#define TCP_ACCECN_ACE_MAX_DELTA 6
+
+/* To avoid/detect middlebox interference, not all counters start at 0.
+ * See draft-ietf-tcpm-accurate-ecn for the latest values.
+ */
+#define TCP_ACCECN_CEP_INIT_OFFSET 5
+
+static inline void tcp_accecn_init_counters(struct tcp_sock *tp)
+{
+	tp->delivered_ce = 0;
+	tp->received_ce = 0;
+	tp->received_ce_tx = 0;
+}
 
 /* This is what the send packet queuing engine uses to pass
  * TCP per-packet control information to the transmission code.
@@ -1528,7 +1555,12 @@ static inline bool tcp_paws_reject(const struct tcp_options_received *rx_opt,
 
 static inline void __tcp_fast_path_on(struct tcp_sock *tp, u32 snd_wnd)
 {
+	u32 ace = tcp_ecn_mode_accecn(tp) ?
+		  ((tp->delivered_ce + TCP_ACCECN_CEP_INIT_OFFSET) &
+		   TCP_ACCECN_CEP_ACE_MASK) : 0;
+
 	tp->pred_flags = htonl((tp->tcp_header_len << 26) |
+			       (ace << 22) |
 			       ntohl(TCP_FLAG_ACK) |
 			       snd_wnd);
 }
