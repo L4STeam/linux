@@ -701,3 +701,4 @@ MODULE_AUTHOR("Bob briscoe <research@bobbriscoe.net>");
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("TCP Prague");
+MODULE_VERSION("0.5");

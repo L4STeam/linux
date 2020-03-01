@@ -1,0 +1,34 @@
+name: bindeb-pkg
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v1
+    - name: Download apt-get dependencies
+      run: |
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get -y purge unattended-upgrades
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get -y update
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get -y install fakeroot libelf-dev libssl-dev flex bison coreutils build-essential xz-utils devscripts initramfs-tools
+    - name: Kernel config
+      run: |
+        make defconfig
+        yes '' | scripts/config --disable DEBUG_INFO
+        yes '' | scripts/config -m CONFIG_TCP_CONG_PRAGUE
+        yes '' | scripts/config -m CONFIG_NET_SCH_DUALPI2
+    - name: make-deb
+      run: yes '' | make -j$(nproc) bindeb-pkg LOCALVERSION=$(git rev-parse --short HEAD)-prague-1 KDEB_PKGVERSION=1
+    - name: Move artefacts
+      run: |
+        mkdir -p debian_build
+        mv -t debian_build ../linux-*.deb
+    - name: Upload artefacts
+      uses: actions/upload-artifact@v1
+      with:
+        name: prague-kernel
+        path: debian_build
