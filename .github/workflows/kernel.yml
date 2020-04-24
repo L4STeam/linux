@@ -22,13 +22,21 @@ jobs:
         yes '' | scripts/config -m CONFIG_TCP_CONG_PRAGUE
         yes '' | scripts/config -m CONFIG_TCP_CONG_BBR
         yes '' | scripts/config -m CONFIG_TCP_CONG_DCTCP
+        yes '' | scripts/config -m CONFIG_NET_SCHED
+        yes '' | scripts/config -m CONFIG_NET_CLS
+        yes '' | scripts/config -m CONFIG_NET_CLS_U32
         yes '' | scripts/config -m CONFIG_NET_SCH_DUALPI2
         yes '' | scripts/config -m CONFIG_NET_SCH_PIE
         yes '' | scripts/config -m CONFIG_NET_SCH_FQ
         yes '' | scripts/config -m CONFIG_NET_SCH_FQ_CODEL
+        yes '' | scripts/config -m CONFIG_NET_SCH_CODEL
+        yes '' | scripts/config -m CONFIG_NET_SCH_RED
         yes '' | scripts/config -m CONFIG_NET_SCH_CAKE
         yes '' | scripts/config -m CONFIG_NET_SCH_HTB
         yes '' | scripts/config -m CONFIG_NET_SCH_NETEM
+        yes '' | scripts/config -m CONFIG_NET_SCH_INGRESS
+        yes '' | scripts/config -m CONFIG_NET_ACT_MIRRED
+        yes '' | scripts/config -m CONFIG_IFB
         yes '' | scripts/config -m CONFIG_VETH
         yes '' | scripts/config -m CONFIG_BRIDGE
     - name: make-deb
