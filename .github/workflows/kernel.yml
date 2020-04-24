@@ -20,7 +20,17 @@ jobs:
         make defconfig
         yes '' | scripts/config --disable DEBUG_INFO
         yes '' | scripts/config -m CONFIG_TCP_CONG_PRAGUE
+        yes '' | scripts/config -m CONFIG_TCP_CONG_BBR
+        yes '' | scripts/config -m CONFIG_TCP_CONG_DCTCP
         yes '' | scripts/config -m CONFIG_NET_SCH_DUALPI2
+        yes '' | scripts/config -m CONFIG_NET_SCH_PIE
+        yes '' | scripts/config -m CONFIG_NET_SCH_FQ
+        yes '' | scripts/config -m CONFIG_NET_SCH_FQ_CODEL
+        yes '' | scripts/config -m CONFIG_NET_SCH_CAKE
+        yes '' | scripts/config -m CONFIG_NET_SCH_HTB
+        yes '' | scripts/config -m CONFIG_NET_SCH_NETEM
+        yes '' | scripts/config -m CONFIG_VETH
+        yes '' | scripts/config -m CONFIG_BRIDGE
     - name: make-deb
       run: yes '' | make -j$(nproc) bindeb-pkg LOCALVERSION=$(git rev-parse --short HEAD)-prague-1 KDEB_PKGVERSION=1
     - name: Move artefacts
