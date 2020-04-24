@@ -37,6 +37,7 @@ jobs:
         yes '' | scripts/config -m CONFIG_IFB
         yes '' | scripts/config -m CONFIG_VETH
         yes '' | scripts/config -m CONFIG_BRIDGE
+        yes '' | scripts/config -m CONFIG_INET_DIAG
     - name: make-deb
       run: yes '' | make -j$(nproc) bindeb-pkg LOCALVERSION=$(git rev-parse --short HEAD)-prague-1 KDEB_PKGVERSION=1
     - name: Move artefacts
