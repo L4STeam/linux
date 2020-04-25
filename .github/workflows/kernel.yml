@@ -22,6 +22,7 @@ jobs:
         yes '' | scripts/config -m CONFIG_TCP_CONG_PRAGUE
         yes '' | scripts/config -m CONFIG_TCP_CONG_BBR
         yes '' | scripts/config -m CONFIG_TCP_CONG_DCTCP
+        yes '' | scripts/config -m CONFIG_NET_IPIP
         yes '' | scripts/config -m CONFIG_NET_CLS_U32
         yes '' | scripts/config -m CONFIG_NET_SCH_DUALPI2
         yes '' | scripts/config -m CONFIG_NET_SCH_PIE
