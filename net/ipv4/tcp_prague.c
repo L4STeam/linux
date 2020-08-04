@@ -155,7 +155,7 @@ MODULE_PARM_DESC(prague_rtt_transition, "Amount of post-SS rounds to transition"
 		 " to be RTT independent.");
 module_param(prague_rtt_transition, uint, 0644);
 
-static int prague_ecn_fallback __read_mostly = 1;
+static int prague_ecn_fallback __read_mostly = 0;
 MODULE_PARM_DESC(prague_ecn_fallback, "0 = none, 1 = detection & fallback"
 		" 2 = detection");
 module_param(prague_ecn_fallback, int, 0644);
