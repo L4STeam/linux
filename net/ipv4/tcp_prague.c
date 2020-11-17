@@ -95,7 +95,7 @@
 #define CWND_UNIT		20U
 #define ONE_CWND		(1LL << CWND_UNIT) /* Must be signed */
 #define PRAGUE_SHIFT_G		4		/* EWMA gain g = 1/2^4 */
-#define DEFAULT_RTT_TRANSITION	100
+#define DEFAULT_RTT_TRANSITION	500
 #define MAX_SCALED_RTT		(100 * USEC_PER_MSEC)
 #define RTT_UNIT		7
 #define RTT2US(x)		((x) << RTT_UNIT)
@@ -141,12 +141,12 @@ MODULE_PARM_DESC(prague_burst_shift,
 		 "maximal GSO burst duration as a base-2 negative exponent");
 module_param(prague_burst_shift, uint, 0644);
 
-static u32 prague_rtt_scaling __read_mostly = RTT_CONTROL_NONE;
+static u32 prague_rtt_scaling __read_mostly = RTT_CONTROL_RATE;
 MODULE_PARM_DESC(prague_rtt_scaling, "Enable RTT independence through the "
 		 "chosen RTT scaling heuristic");
 module_param(prague_rtt_scaling, uint, 0644);
 
-static u32 prague_rtt_target __read_mostly = 15 * USEC_PER_MSEC;
+static u32 prague_rtt_target __read_mostly = 25 * USEC_PER_MSEC;
 MODULE_PARM_DESC(prague_rtt_target, "RTT scaling target");
 module_param(prague_rtt_target, uint, 0644);
 
