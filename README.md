@@ -42,7 +42,7 @@ scripts/config -m TCP_CONG_PRAGUE
 scripts/config -m NET_SCH_DUALPI2
 
 # Build the kernel
-make -j$(nproc)
+make -j$(nproc) LOCALVERSION=-prague-1
 # Alternatively, you can generate *.deb with
 # BUILD_NUMBER=${BUILD_NUMBER:-1} make \
 #	-j$(nproc) bindeb-pkg \
@@ -53,6 +53,23 @@ make -j$(nproc)
 # Install it on the current system if applicable
 make install
 make modules_install
+
+# Update your bootloader to list the new kernel
+update-grub
+# You may then want to udpate the GRUB_DEFAULT variable
+# in /etc/default/grub to the newly installed kernel
+```
+
+If you intend to use non-default parameters for dualpi2,
+make sure to also build the [patched iproute2 ](https://github.com/L4STeam/iproute2), e.g.,
+```bash
+git clone https://github.com/L4STeam/iproute2.git && cd iproute2
+./configure
+make
+# Enable DCTCP compat by also enqueing ECT(0) in the L4S queue
+tc/tc qdisc replace dev eth0 root dualpi2 any_ect
+# You can optionally install (!potentially overwrite) the new
+# iproute2 utils with `make install`
 ```
 
 ## Performing experiments
