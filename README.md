@@ -11,13 +11,26 @@ Namely:
 - Various enhancements to DCTCP
 - The base implementation of TCP Prague (see branch tcp_prague)
 
+# Installation (debian derivatives)
+
+```bash
+wget https://github.com/L4STeam/linux/releases/download/testing-build/l4s-testing.zip
+unzip l4s-testing.zip
+sudo dpkg --install debian_build/*
+sudo update-grub  # This should auto-detect the new kernel
+# You can now reboot (and may have to manually select the kernel in grub)
+# Be sure to ensure the required modules are loaded before doing experiments, e.g.,
+sudo modprobe sch_dualpi2
+sudo modprobe tcp_prague
+```
+
 ## This branch (testing)
 
 This branch accumulates all patches into a single kernel tree, in order to ease
 up testing.
 
 You can grab a pre-built debian archive of the kernel image and headers through
-the latest [actions artifacts](https://github.com/L4STeam/linux/actions).
+the latest [actions artifacts](https://github.com/L4STeam/linux/actions). The tip of the master branch is also always build/packaged (alongside iproute2) and attached as pre-release artifact for the `testing-build` tag.
 
 ## Compilation
 

@@ -16,7 +16,7 @@ jobs:
         sudo env DEBIAN_FRONTEND=noninteractive apt-get -y update
         sudo env DEBIAN_FRONTEND=noninteractive apt-get -y install fakeroot \
             libelf-dev libssl-dev flex bison coreutils build-essential \
-            xz-utils devscripts initramfs-tools
+            xz-utils devscripts initramfs-tools wget
     - name: Kernel config
       run: |
         make defconfig
@@ -55,6 +55,11 @@ jobs:
       with:
         name: prague-kernel
         path: debian_build
+    - name: Include iproute2 into the pre-release archive
+      run: |
+          wget https://github.com/L4STeam/iproute2/releases/download/master-build/iproute2-l4s.zip
+          unzip iproute2-l4s
+          mv -t debian_build iproute2-l4s/*
     - name: Zip artifacts
       run: zip -r l4s-testing.zip debian_build
     - name: Release tip build
