@@ -16,10 +16,10 @@ jobs:
         sudo env DEBIAN_FRONTEND=noninteractive apt-get -y update
         sudo env DEBIAN_FRONTEND=noninteractive apt-get -y install fakeroot \
             libelf-dev libssl-dev flex bison coreutils build-essential \
-            xz-utils devscripts initramfs-tools wget
+            xz-utils devscripts initramfs-tools wget linux-headers-5.4.0-60-lowlatency
     - name: Kernel config
       run: |
-        make defconfig
+        cp /usr/src/linux-headers-5.4.0-60-lowlatency/.config .
         scripts/config --disable DEBUG_INFO \
                        --module CONFIG_TCP_CONG_PRAGUE \
                        --module CONFIG_TCP_CONG_BBR \
@@ -40,18 +40,7 @@ jobs:
                        --module CONFIG_IFB \
                        --module CONFIG_VETH \
                        --module CONFIG_BRIDGE \
-                       --module CONFIG_INET_DIAG \
-                       --set-val CONFIG_HZ 1000 \
-                       --enable CONFIG_HZ_1000 \
-                       --enable CONFIG_IRQ_FORCED_THREADING_DEFAULT \
-                       --enable CONFIG_LATENCYTOP \
-                       --enable CONFIG_PREEMPT \
-                       --module CONFIG_IWLWIFI \
-                       --module CONFIG_IWLDVM \
-                       --module CONFIG_IWLMVM \
-                       --module CONFIG_IWLEGACY \
-                       --module CONFIG_IWL3945 \
-                       --module CONFIG_IWL4965
+                       --module CONFIG_INET_DIAG
         make olddefconfig
     - name: make-deb
       run: make -j$(nproc) bindeb-pkg \
