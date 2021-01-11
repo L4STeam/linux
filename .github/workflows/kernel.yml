@@ -16,10 +16,10 @@ jobs:
         sudo env DEBIAN_FRONTEND=noninteractive apt-get -y update
         sudo env DEBIAN_FRONTEND=noninteractive apt-get -y install fakeroot \
             libelf-dev libssl-dev flex bison coreutils build-essential \
-            xz-utils devscripts initramfs-tools wget linux-headers-5.4.0-60-lowlatency
+            xz-utils devscripts initramfs-tools wget linux-headers-5.4.0-60-generic
     - name: Kernel config
       run: |
-        cp /usr/src/linux-headers-5.4.0-60-lowlatency/.config .
+        cp /usr/src/linux-headers-5.4.0-60-generic/.config .
         scripts/config --disable DEBUG_INFO \
                        --module CONFIG_TCP_CONG_PRAGUE \
                        --module CONFIG_TCP_CONG_BBR \
