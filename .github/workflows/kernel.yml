@@ -44,24 +44,17 @@ jobs:
         make olddefconfig
     - name: make-deb
       run: make -j$(nproc) bindeb-pkg \
-            LOCALVERSION=$(git rev-parse --short HEAD)-prague-1 \
+            LOCALVERSION=$(git rev-parse --short HEAD)-prague-${GITHUB_RUN_NUMBER} \
             KDEB_PKGVERSION=1
     - name: Move artifacts
       run: |
         mkdir -p debian_build
         mv -t debian_build ../linux-*.deb
     - name: Upload artifacts
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v2
       with:
         name: prague-kernel
         path: debian_build
-    - name: Include iproute2 into the pre-release archive
-      run: |
-          wget https://github.com/L4STeam/iproute2/releases/download/master-build/iproute2-l4s.zip
-          unzip iproute2-l4s
-          mv -t debian_build iproute2-l4s/*
-    - name: Zip artifacts
-      run: zip -r l4s-testing.zip debian_build
 
   release:
     name: Release build artifacts for the testing branch
@@ -69,6 +62,17 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/testing'
     steps:
+    - name: Get artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: prague-kernel
+    - name: Include iproute2 into the pre-release archive
+      run: |
+          wget https://github.com/L4STeam/iproute2/releases/download/master-build/iproute2-l4s.zip
+          unzip iproute2-l4s
+          mv -t . iproute2-l4s/*.deb
+    - name: Zip artifacts
+      run: zip -r l4s-testing.zip *.deb
     - name: Release tip build
       uses: eine/tip@master
       with:
