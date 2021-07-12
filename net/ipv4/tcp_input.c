@@ -788,6 +788,15 @@ static s32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 		return safe_delta;
 	}
 
+	if (tp->saw_accecn_opt == TCP_ACCECN_OPT_COUNTER_SEEN)
+		return delta;
+
+	if (!delta && (sock_net(sk)->ipv4.sysctl_tcp_ecn_optionless_safe & 0x2))
+		return delta;
+
+	if (sock_net(sk)->ipv4.sysctl_tcp_ecn_optionless_safe & 0x1)
+		return safe_delta;
+
 	return delta;
 }
 

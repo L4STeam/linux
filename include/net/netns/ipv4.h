@@ -98,6 +98,7 @@ struct netns_ipv4 {
 	int sysctl_tcp_ecn_option;
 	int sysctl_tcp_ecn_option_beacon;
 	int sysctl_tcp_ecn_fallback;
+	int sysctl_tcp_ecn_optionless_safe;
 
 	int sysctl_ip_default_ttl;
 	int sysctl_ip_no_pmtu_disc;
