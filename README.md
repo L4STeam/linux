@@ -9,8 +9,8 @@ Namely:
 [iproute2 repository](https://github.com/L4STeam/iproute2)
 - An implementation of Accurate ECN (see branch AccECN-full)
 - The base implementation of TCP Prague (see branch tcp_prague)
-- ECT(1) enabled DCTCP
-- ECT(1) enabled BBR v2 (from v2alpha branch in
+- ECT(1) and AccECN enabled DCTCP
+- ECT(1) and AccECN enabled BBR v2 (from v2alpha branch in
 [BBR v2 repo](https://github.com/google/bbr))
 
 # Installation (debian derivatives)
@@ -93,7 +93,7 @@ tc/tc qdisc replace dev eth0 root dualpi2 ...
 
 While dualpi2 can work with DCTCP, DCTCP suffers from a few unfortunate
 interactions with GSO/pacing/..., resulting in under-utilization. As a result,
-we advice you to use tcp_prague which currently has
+we advise you to use tcp_prague which currently has
 basic fixes to those limitations. Note that this might still under-perform in
 heavily virtualized settings, as scheduling becomes less reliable.
 
@@ -103,6 +103,7 @@ sysctl -w net.ipv4.tcp_congestion_control=prague
 sysctl -w net.ipv4.tcp_ecn=3
 ```
 
-Prague attempts to negotiate Accurate ECN automatically.
-Note that, at the moment, Accurate ECN **must** be enabled on both ends of a
-connection in order it with DCTCP or BBR v2.
+Prague, BBRv2 and DCTCP attempt to negotiate Accurate ECN automatically once
+the AccECN sysctl is enabled. 
+Note that, Accurate ECN **must** be enabled on both ends of a
+connection in order for the negotiation to succeed.
