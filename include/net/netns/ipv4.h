@@ -94,6 +94,7 @@ struct netns_ipv4 {
 	struct local_ports ip_local_ports;
 
 	int sysctl_tcp_ecn;
+	int sysctl_tcp_ecn_feedback;
 	int sysctl_tcp_ecn_option;
 	int sysctl_tcp_ecn_option_beacon;
 	int sysctl_tcp_ecn_fallback;

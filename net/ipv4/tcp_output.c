@@ -388,9 +388,10 @@ tcp_ecn_make_synack(const struct request_sock *req, struct tcphdr *th)
 		th->ece = 1;
 }
 
-static void tcp_accecn_set_ace(struct tcp_sock *tp, struct sk_buff *skb,
+static void tcp_accecn_set_ace(struct sock *sk, struct sk_buff *skb,
 			       struct tcphdr *th)
 {
+	struct tcp_sock *tp = tcp_sk(sk);
 	u32 wire_ace;
 
 	/* The final packet of the 3WHS or anything like it must reflect
@@ -398,6 +399,12 @@ static void tcp_accecn_set_ace(struct tcp_sock *tp, struct sk_buff *skb,
 	 * case show up in tcp_flags.
 	 */
 	if (likely(!(TCP_SKB_CB(skb)->tcp_flags & TCPHDR_ACE))) {
+		if (!(sock_net(sk)->ipv4.sysctl_tcp_ecn_feedback)) {
+			if (tp->ecn_flags & TCP_ECN_DEMAND_CWR)
+				th->ece = 1;
+			return;
+		}
+
 		wire_ace = tp->received_ce + TCP_ACCECN_CEP_INIT_OFFSET;
 		th->ece = !!(wire_ace & 0x1);
 		th->cwr = !!(wire_ace & 0x2);
@@ -420,7 +427,7 @@ static void tcp_ecn_send(struct sock *sk, struct sk_buff *skb,
 	if (!tp->ecn_fail)
 		INET_ECN_xmit(sk);
 	if (tcp_ecn_mode_accecn(tp)) {
-		tcp_accecn_set_ace(tp, skb, th);
+		tcp_accecn_set_ace(sk, skb, th);
 		skb_shinfo(skb)->gso_type |= SKB_GSO_TCP_ACCECN;
 	} else {
 		/* Not-retransmitted data segment: set ECT and inject CWR. */

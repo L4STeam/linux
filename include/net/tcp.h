@@ -386,6 +386,8 @@ static inline void tcp_dec_quickack_mode(struct sock *sk,
 #define	TCP_ECN_DEMAND_CWR	0x4
 #define	TCP_ECN_SEEN		0x8
 #define TCP_ECN_MODE_ACCECN	0x10
+/* DCTCP feedback vs full AccECN ACE feedback */
+#define TCP_ECN_MODE_ACCECN_ACEMODE	0x20
 
 #define TCP_ECN_DISABLED	0
 #define TCP_ECN_MODE_PENDING	(TCP_ECN_MODE_RFC3168|TCP_ECN_MODE_ACCECN)
@@ -404,6 +406,11 @@ static inline bool tcp_ecn_mode_rfc3168(const struct tcp_sock *tp)
 static inline bool tcp_ecn_mode_accecn(const struct tcp_sock *tp)
 {
 	return (tp->ecn_flags & TCP_ECN_MODE_ANY) == TCP_ECN_MODE_ACCECN;
+}
+
+static inline bool tcp_ecn_mode_accecn_dctcpfb(const struct tcp_sock *tp)
+{
+	return !(tp->ecn_flags & TCP_ECN_MODE_ACCECN_ACEMODE);
 }
 
 static inline bool tcp_ecn_disabled(const struct tcp_sock *tp)
@@ -879,12 +886,12 @@ static inline u64 tcp_skb_timestamp_us(const struct sk_buff *skb)
 #define TCPHDR_SYNACK_ACCECN (TCPHDR_SYN | TCPHDR_ACK | TCPHDR_CWR)
 
 #define TCP_ACCECN_CEP_ACE_MASK 0x7
-#define TCP_ACCECN_ACE_MAX_DELTA 6
+#define TCP_ACCECN_ACE_MAX_DELTA 7
 
 /* To avoid/detect middlebox interference, not all counters start at 0.
  * See draft-ietf-tcpm-accurate-ecn for the latest values.
  */
-#define TCP_ACCECN_CEP_INIT_OFFSET 5
+#define TCP_ACCECN_CEP_INIT_OFFSET 3
 #define TCP_ACCECN_E1B_INIT_OFFSET 0
 #define TCP_ACCECN_E0B_INIT_OFFSET 1
 #define TCP_ACCECN_CEB_INIT_OFFSET 0
@@ -1639,9 +1646,16 @@ static inline bool tcp_paws_reject(const struct tcp_options_received *rx_opt,
 
 static inline void __tcp_fast_path_on(struct tcp_sock *tp, u32 snd_wnd)
 {
-	u32 ace = tcp_ecn_mode_accecn(tp) ?
-		  ((tp->delivered_ce + TCP_ACCECN_CEP_INIT_OFFSET) &
-		   TCP_ACCECN_CEP_ACE_MASK) : 0;
+	u32 ace = 0;
+
+	if (tcp_ecn_mode_accecn(tp)) {
+		if (tcp_ecn_mode_accecn_dctcpfb(tp)) {
+			ace = 0;
+		} else {
+			ace = (tp->delivered_ce + TCP_ACCECN_CEP_INIT_OFFSET) &
+			      TCP_ACCECN_CEP_ACE_MASK;
+		}
+	}
 
 	tp->pred_flags = htonl((tp->tcp_header_len << 26) |
 			       (ace << 22) |

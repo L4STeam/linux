@@ -666,6 +666,26 @@ static s32 tcp_accecn_align_to_delta(s32 candidate, u32 delta)
 	return candidate - ((candidate - delta) & TCP_ACCECN_CEP_ACE_MASK);
 }
 
+/* Differentiate ACE field signalling peers from DCTCP feedback ones */
+static bool tcp_accecn_detect_accecn_acemode(struct tcp_sock *tp,
+                                             const struct sk_buff *skb, int flag)
+{
+	if (!(TCP_SKB_CB(skb)->tcp_flags & (TCPHDR_CWR|TCPHDR_AE)))
+		return false;
+
+	if ((flag & FLAG_DATA) || TCP_SKB_CB(skb)->sacked)
+		return true;
+
+	if (flag & FLAG_SYN_ACKED && !(flag & FLAG_DATA_ACKED))
+		return false;
+
+	if (flag & FLAG_SND_UNA_ADVANCED)
+		return true;
+
+	/* Could be reflector, assume DCTCP f/b */
+	return false;
+}
+
 /* Returns the ECN CE delta */
 static s32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 				u32 delivered_pkts, u32 delivered_bytes, int flag)
@@ -675,6 +695,20 @@ static s32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 	u32 delta, safe_delta;
 	bool opt_deltas_valid;
 	u32 corrected_ace;
+
+	if (tcp_ecn_mode_accecn_dctcpfb(tp)) {
+		if (tcp_accecn_detect_accecn_acemode(tp, skb, flag)) {
+			tp->ecn_flags |= TCP_ECN_MODE_ACCECN_ACEMODE;
+		} else {
+			/* Skip reflector */
+			if (TCP_SKB_CB(skb)->tcp_flags & (TCPHDR_CWR|TCPHDR_AE))
+				return 0;
+
+			if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_ECE)
+				return delivered_pkts;
+			return 0;
+		}
+	}
 
 	/* Reordered ACK? (...or uncertain due to lack of data to send and ts) */
 	if (!(flag & (FLAG_FORWARD_PROGRESS|FLAG_TS_PROGRESS)))
@@ -4164,9 +4198,11 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 
 		NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPHPACKS);
 	} else {
-		if (ack_seq != TCP_SKB_CB(skb)->end_seq)
-			flag |= FLAG_DATA;
-		else
+		if (ack_seq != TCP_SKB_CB(skb)->end_seq) {
+			if ((TCP_SKB_CB(skb)->end_seq - ack_seq > 1) ||
+			    !(TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN))
+				flag |= FLAG_DATA;
+		} else
 			NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPPUREACKS);
 
 		flag |= tcp_ack_update_window(sk, skb, ack, ack_seq);
@@ -6011,16 +6047,27 @@ void tcp_ecn_received_counters(struct sock *sk, const struct sk_buff *skb,
 
 	ecn_edge = tp->prev_ecnfield != ecnfield;
 	if (ecn_edge || is_ce) {
-		tp->prev_ecnfield = ecnfield;
 		/* Demand Accurate ECN change-triggered ACKs. Two ACK are
 		 * demanded to indicate unambiguously the ecnfield value
 		 * in the latter ACK.
 		 */
 		if (tcp_ecn_mode_accecn(tp)) {
+			if ((INET_ECN_is_ce(tp->prev_ecnfield) != is_ce) &&
+			    tcp_ecn_mode_accecn_dctcpfb(tp)) {
+				/* Flush pending pre-edge marker ACK */
+				if (inet_csk(sk)->icsk_ack.pending & ICSK_ACK_TIMER)
+					__tcp_send_ack(sk, tp->rcv_nxt, 0);
+				if (is_ce)
+					tp->ecn_flags |= TCP_ECN_DEMAND_CWR;
+				else
+					tp->ecn_flags &= ~TCP_ECN_DEMAND_CWR;
+			}
+
 			if (ecn_edge)
 				inet_csk(sk)->icsk_ack.pending |= ICSK_ACK_NOW;
 			tp->accecn_opt_demand = 2;
 		}
+		tp->prev_ecnfield = ecnfield;
 	}
 }
 
