@@ -310,7 +310,7 @@ static bool tcp_in_quickack_mode(struct sock *sk)
 		(icsk->icsk_ack.quick && !inet_csk_in_pingpong_mode(sk));
 }
 
-static void tcp_count_delivered_ce(struct tcp_sock *tp, u32 ecn_count)
+static void tcp_count_delivered_ce(struct tcp_sock *tp, s32 ecn_count)
 {
 	tp->delivered_ce += ecn_count;
 }
@@ -320,12 +320,13 @@ static void tcp_count_delivered(struct tcp_sock *tp, u32 delivered,
 				bool ece_ack)
 {
 	tp->delivered += delivered;
-	if (ece_ack)
+	if (tcp_ecn_mode_rfc3168(tp) && ece_ack)
 		tcp_count_delivered_ce(tp, delivered);
 }
 
 static void tcp_ecn_queue_cwr(struct tcp_sock *tp)
 {
+	/* Do not set CWR if in AccECN mode! */
 	if (tcp_ecn_mode_rfc3168(tp))
 		tp->ecn_flags |= TCP_ECN_QUEUE_CWR;
 }
@@ -334,7 +335,7 @@ static void tcp_ecn_accept_cwr(struct sock *sk, const struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
-	if (tcp_hdr(skb)->cwr) {
+	if (tcp_ecn_mode_rfc3168(tp) && tcp_hdr(skb)->cwr) {
 		tp->ecn_flags &= ~TCP_ECN_DEMAND_CWR;
 
 		/* If the sender is telling us it has entered CWR, then its
@@ -371,17 +372,16 @@ static void tcp_data_ecn_check(struct sock *sk, const struct sk_buff *skb)
 		if (tcp_ca_needs_ecn(sk))
 			tcp_ca_event(sk, CA_EVENT_ECN_IS_CE);
 
-		if (!(tp->ecn_flags & TCP_ECN_DEMAND_CWR)) {
+		if (!(tp->ecn_flags & TCP_ECN_DEMAND_CWR) &&
+		    tcp_ecn_mode_rfc3168(tp)) {
 			/* Better not delay acks, sender can have a very low cwnd */
 			tcp_enter_quickack_mode(sk, 2);
 			tp->ecn_flags |= TCP_ECN_DEMAND_CWR;
 		}
-		tp->ecn_flags |= TCP_ECN_SEEN;
 		break;
 	default:
 		if (tcp_ca_needs_ecn(sk))
 			tcp_ca_event(sk, CA_EVENT_ECN_NO_CE);
-		tp->ecn_flags |= TCP_ECN_SEEN;
 		break;
 	}
 }
@@ -403,6 +403,55 @@ static bool tcp_ecn_rcv_ecn_echo(const struct tcp_sock *tp, const struct tcphdr 
 	if (th->ece && !th->syn && tcp_ecn_mode_rfc3168(tp))
 		return true;
 	return false;
+}
+
+/* Returns the ECN CE delta */
+static s32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
+				u32 delivered_pkts, int flag)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	u32 corrected_ace;
+	u32 delta;
+
+	/* Reordered ACK? (...or uncertain due to lack of data to send and ts) */
+	if (!(flag & (FLAG_FORWARD_PROGRESS|FLAG_TS_PROGRESS)))
+		return 0;
+
+	corrected_ace = tcp_accecn_ace(tcp_hdr(skb)) - TCP_ACCECN_CEP_INIT_OFFSET;
+	delta = (corrected_ace - tp->delivered_ce) & TCP_ACCECN_CEP_ACE_MASK;
+
+	if (!(flag & FLAG_SLOWPATH)) {
+		/* AccECN counter might overflow on large ACKs */
+		if (delivered_pkts <= TCP_ACCECN_CEP_ACE_MASK)
+			return 0;
+	}
+
+	/* ACE field is not available during handshake */
+	if ((flag & FLAG_SYN_ACKED) && !(flag & FLAG_DATA_ACKED))
+		return 0;
+
+	if (tp->received_ce_pending >= TCP_ACCECN_ACE_MAX_DELTA)
+		inet_csk(sk)->icsk_ack.pending |= ICSK_ACK_NOW;
+
+	return delta;
+}
+
+static void tcp_accecn_process(struct sock *sk, struct rate_sample *rs,
+			       const struct sk_buff *skb,
+			       u32 delivered_pkts, int *flag)
+{
+	s32 delta = __tcp_accecn_process(sk, skb, delivered_pkts, *flag);
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	if (delta != 0) {
+		if (delta > 0)
+			*flag |= FLAG_ECE;
+		tcp_count_delivered_ce(tp, delta);
+		rs->ece_delta = delta;
+		/* Recalculate header predictor */
+		if (tp->pred_flags)
+			tcp_fast_path_on(tp);
+	}
 }
 
 /* Buffer size and advertised window tuning.
@@ -3696,7 +3745,8 @@ static u32 tcp_newly_delivered(struct sock *sk, struct rate_sample *rs,
 	NET_ADD_STATS(net, LINUX_MIB_TCPDELIVERED, delivered);
 
 	if (flag & FLAG_ECE) {
-		rs->ece_delta = delivered;
+		if (tcp_ecn_mode_rfc3168(tp))
+			rs->ece_delta = delivered;
 		NET_ADD_STATS(net, LINUX_MIB_TCPDELIVEREDCE, rs->ece_delta);
 	}
 
@@ -3822,6 +3872,9 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 
 	tcp_rack_update_reo_wnd(sk, &rs);
 
+	if (tcp_ecn_mode_accecn(tp))
+		tcp_accecn_process(sk, &rs, skb, tp->delivered - delivered, &flag);
+
 	tcp_in_ack_event(sk, flag);
 
 	if (tp->tlp_high_seq)
@@ -3854,6 +3907,8 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 	return 1;
 
 no_queue:
+	if (tcp_ecn_mode_accecn(tp))
+		tcp_accecn_process(sk, &rs, skb, tp->delivered - delivered, &flag);
 	tcp_in_ack_event(sk, flag);
 	/* If data was DSACKed, see if we can undo a cwnd reduction. */
 	if (flag & FLAG_DSACKING_ACK) {
@@ -5574,6 +5629,23 @@ static void tcp_urg(struct sock *sk, struct sk_buff *skb, const struct tcphdr *t
 	}
 }
 
+/* Updates Accurate ECN received counters from the received IP ECN field */
+static void tcp_ecn_received_counters(struct sock *sk, const struct sk_buff *skb)
+{
+	u8 ecnfield = TCP_SKB_CB(skb)->ip_dsfield & INET_ECN_MASK;
+	u8 is_ce = INET_ECN_is_ce(ecnfield);
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	if (!INET_ECN_is_not_ect(ecnfield)) {
+		u32 pcount = is_ce * max_t(u16, 1, skb_shinfo(skb)->gso_segs);
+		tp->ecn_flags |= TCP_ECN_SEEN;
+
+		/* ACE counter tracks *all* segments including pure acks */
+		tp->received_ce += pcount;
+		tp->received_ce_pending = max(tp->received_ce_pending + pcount, 0xfU);
+	}
+}
+
 /* Accept RST for rcv_nxt - 1 after a FIN.
  * When tcp connections are abruptly terminated from Mac OSX (via ^C), a
  * FIN is sent followed by a RST packet. The RST is sent with the same
@@ -5807,6 +5879,8 @@ void tcp_rcv_established(struct sock *sk, struct sk_buff *skb)
 				    tp->rcv_nxt == tp->rcv_wup)
 					flag |= __tcp_replace_ts_recent(tp, tstamp_delta);
 
+				tcp_ecn_received_counters(sk, skb);
+
 				/* We know that such packets are checksummed
 				 * on entry.
 				 */
@@ -5848,6 +5922,7 @@ void tcp_rcv_established(struct sock *sk, struct sk_buff *skb)
 
 			/* Bulk data transfer: receiver */
 			__skb_pull(skb, tcp_header_len);
+			tcp_ecn_received_counters(sk, skb);
 			eaten = tcp_queue_rcv(sk, skb, &fragstolen);
 
 			tcp_event_data_recv(sk, skb);
@@ -5886,6 +5961,8 @@ slow_path:
 		return;
 
 step5:
+	tcp_ecn_received_counters(sk, skb);
+
 	if (tcp_ack(sk, skb, FLAG_SLOWPATH | FLAG_UPDATE_TS_RECENT) < 0)
 		goto discard;
 
