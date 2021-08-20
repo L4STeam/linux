@@ -661,13 +661,20 @@ static bool tcp_accecn_process_option(struct tcp_sock *tp,
 	return true;
 }
 
+static s32 tcp_accecn_align_to_delta(s32 candidate, u32 delta)
+{
+	return candidate - ((candidate - delta) & TCP_ACCECN_CEP_ACE_MASK);
+}
+
 /* Returns the ECN CE delta */
 static s32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 				u32 delivered_pkts, u32 delivered_bytes, int flag)
 {
+	u32 old_ceb = tcp_sk(sk)->delivered_ecn_bytes[INET_ECN_CE - 1];
 	struct tcp_sock *tp = tcp_sk(sk);
+	u32 delta, safe_delta;
+	bool opt_deltas_valid;
 	u32 corrected_ace;
-	u32 delta;
 
 	/* Reordered ACK? (...or uncertain due to lack of data to send and ts) */
 	if (!(flag & (FLAG_FORWARD_PROGRESS|FLAG_TS_PROGRESS)))
@@ -676,8 +683,8 @@ static s32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 	corrected_ace = tcp_accecn_ace(tcp_hdr(skb)) - TCP_ACCECN_CEP_INIT_OFFSET;
 	delta = (corrected_ace - tp->delivered_ce) & TCP_ACCECN_CEP_ACE_MASK;
 
-	tcp_accecn_process_option(tp, skb, delivered_pkts,
-				  delivered_bytes, flag, delta);
+	opt_deltas_valid = tcp_accecn_process_option(tp, skb, delivered_pkts,
+						     delivered_bytes, flag, delta);
 
 	if (!(flag & FLAG_SLOWPATH)) {
 		/* AccECN counter might overflow on large ACKs */
@@ -691,6 +698,22 @@ static s32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 
 	if (tp->received_ce_pending >= TCP_ACCECN_ACE_MAX_DELTA)
 		inet_csk(sk)->icsk_ack.pending |= ICSK_ACK_NOW;
+
+	if (delivered_pkts <= TCP_ACCECN_CEP_ACE_MASK + delta)
+		return delta;
+
+	safe_delta = tcp_accecn_align_to_delta(delivered_pkts, delta);
+
+	if (opt_deltas_valid) {
+		s32 d_ceb = tp->delivered_ecn_bytes[INET_ECN_CE - 1] - old_ceb;
+		if (!d_ceb)
+			return delta;
+		if (d_ceb > delta * tp->mss_cache)
+			return safe_delta;
+		if (d_ceb < safe_delta * tp->mss_cache >> TCP_ACCECN_SAFETY_SHIFT)
+			return delta;
+		return safe_delta;
+	}
 
 	return delta;
 }
