@@ -708,6 +708,45 @@ static s32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 		s32 d_ceb = tp->delivered_ecn_bytes[INET_ECN_CE - 1] - old_ceb;
 		if (!d_ceb)
 			return delta;
+
+		/* Backtracking when negative ceb delta is observed. */
+		if (d_ceb < 0) {
+			s32 neg_delta = DIV_ROUND_UP((u32)(-d_ceb), tp->mss_cache);
+			/* This is slightly problematic after delivered_ce
+			 * overflow but it's minor enough that complex
+			 * solution seems overkill.
+			 */
+			if (neg_delta > tp->delivered_ce)
+				neg_delta = tp->delivered_ce;
+
+			/* We might return positive here under some
+			 * complex conditions, don't be surprised.
+			 */
+			return tcp_accecn_align_to_delta(-neg_delta, delta) +
+			       TCP_ACCECN_CEP_ACE_MASK + 1;
+		}
+
+		if (delivered_bytes <= d_ceb) {
+			u32 extra_ce, ce_limit;
+
+			if (delivered_bytes == d_ceb)
+				return safe_delta;
+
+			/* Large ceb jump */
+			extra_ce = DIV_ROUND_UP(d_ceb - delivered_bytes,
+						tp->mss_cache);
+			ce_limit = delivered_pkts + extra_ce;
+			return tcp_accecn_align_to_delta(ce_limit, delta);
+		}
+
+		if ((tcp_is_sack(tp) ||
+		     ((1 << inet_csk(sk)->icsk_ca_state) & (TCPF_CA_Open|TCPF_CA_CWR)))) {
+			u32 est_d_cep;
+
+			est_d_cep = DIV_ROUND_UP_ULL((u64)d_ceb * delivered_pkts, delivered_bytes);
+			return min(safe_delta, delta + (est_d_cep & ~TCP_ACCECN_CEP_ACE_MASK));
+		}
+
 		if (d_ceb > delta * tp->mss_cache)
 			return safe_delta;
 		if (d_ceb < safe_delta * tp->mss_cache >> TCP_ACCECN_SAFETY_SHIFT)
