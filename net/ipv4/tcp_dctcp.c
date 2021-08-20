@@ -119,7 +119,7 @@ static void dctcp_update_alpha(struct sock *sk, u32 flags)
 
 	/* Expired RTT */
 	if (!before(tp->snd_una, ca->next_seq)) {
-		u64 delivered_ce = tp->delivered_ce - ca->old_delivered_ce;
+		s64 delivered_ce = (s64)tp->delivered_ce - ca->old_delivered_ce;
 		u32 alpha = ca->dctcp_alpha;
 
 		/* alpha = (1 - g) * alpha + g * F */
@@ -129,9 +129,9 @@ static void dctcp_update_alpha(struct sock *sk, u32 flags)
 			u32 delivered = tp->delivered - ca->old_delivered;
 
 			delivered_ce <<= (DCTCP_ALPHA_SHIFT - dctcp_shift_g);
-			delivered_ce = div_u64(delivered_ce, max(1U, delivered));
+			delivered_ce = div_s64(delivered_ce, max(1U, delivered));
 
-			alpha = min(alpha + (u32)delivered_ce, DCTCP_MAX_ALPHA);
+			alpha = clamp_t(s32, alpha + delivered_ce, 0, DCTCP_MAX_ALPHA);
 		}
 		/* dctcp_alpha can be read from dctcp_get_info() without
 		 * synchro, so we ask compiler to not use dctcp_alpha
