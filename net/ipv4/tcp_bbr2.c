@@ -1394,7 +1394,8 @@ static void bbr2_update_ecn_alpha(struct sock *sk)
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct bbr *bbr = inet_csk_ca(sk);
 	s32 delivered, delivered_ce;
-	u64 alpha, ce_ratio;
+	s64 ce_ratio;
+	u64 alpha;
 	u32 gain;
 
 	if (bbr->params.ecn_factor == 0)
@@ -1404,7 +1405,7 @@ static void bbr2_update_ecn_alpha(struct sock *sk)
 	delivered_ce = tp->delivered_ce - bbr->alpha_last_delivered_ce;
 
 	if (delivered == 0 ||		/* avoid divide by zero */
-	    WARN_ON_ONCE(delivered < 0 || delivered_ce < 0))  /* backwards? */
+	    WARN_ON_ONCE(delivered < 0))  /* backwards? */
 		return;
 
 	/* See if we should use ECN sender logic for this connection. */
@@ -1413,12 +1414,12 @@ static void bbr2_update_ecn_alpha(struct sock *sk)
 	     !bbr->params.ecn_max_rtt_us))
 		bbr->ecn_eligible = 1;
 
-	ce_ratio = (u64)delivered_ce << BBR_SCALE;
-	do_div(ce_ratio, delivered);
+	ce_ratio = (s64)delivered_ce << BBR_SCALE;
+	ce_ratio = div_s64(ce_ratio, delivered);
 	gain = bbr->params.ecn_alpha_gain;
 	alpha = ((BBR_UNIT - gain) * bbr->ecn_alpha) >> BBR_SCALE;
-	alpha += (gain * ce_ratio) >> BBR_SCALE;
-	bbr->ecn_alpha = min_t(u32, alpha, BBR_UNIT);
+	alpha = clamp_t(s64, alpha + ((gain * ce_ratio) >> BBR_SCALE), 0, BBR_UNIT);
+	bbr->ecn_alpha = alpha;
 
 	bbr->alpha_last_delivered = tp->delivered;
 	bbr->alpha_last_delivered_ce = tp->delivered_ce;
