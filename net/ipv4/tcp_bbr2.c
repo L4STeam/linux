@@ -748,9 +748,11 @@ static void bbr_cwnd_event(struct sock *sk, enum tcp_ca_event event)
 		    event == CA_EVENT_ECN_NO_CE) &&
 		    bbr_ecn_enable &&
 		    bbr->params.precise_ece_ack) {
-		u32 state = bbr->ce_state;
-		dctcp_ece_ack_update(sk, event, &bbr->prior_rcv_nxt, &state);
-		bbr->ce_state = state;
+		if (!tcp_ecn_mode_accecn_dctcpfb(tp)) {
+			u32 state = bbr->ce_state;
+			dctcp_ece_ack_update(sk, event, &bbr->prior_rcv_nxt, &state);
+			bbr->ce_state = state;
+		}
 		if (tp->fast_ack_mode == 2 && event == CA_EVENT_ECN_IS_CE)
 			tcp_enter_quickack_mode(sk, TCP_MAX_QUICKACKS);
 	}

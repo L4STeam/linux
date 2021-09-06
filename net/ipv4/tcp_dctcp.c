@@ -164,11 +164,13 @@ static void dctcp_state(struct sock *sk, u8 new_state)
 static void dctcp_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 {
 	struct dctcp *ca = inet_csk_ca(sk);
+	struct tcp_sock *tp = tcp_sk(sk);
 
 	switch (ev) {
 	case CA_EVENT_ECN_IS_CE:
 	case CA_EVENT_ECN_NO_CE:
-		dctcp_ece_ack_update(sk, ev, &ca->prior_rcv_nxt, &ca->ce_state);
+		if (!tcp_ecn_mode_accecn_dctcpfb(tp))
+			dctcp_ece_ack_update(sk, ev, &ca->prior_rcv_nxt, &ca->ce_state);
 		break;
 	case CA_EVENT_LOSS:
 		dctcp_react_to_loss(sk);
