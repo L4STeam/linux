@@ -92,7 +92,7 @@ static const u32 fsi_base = 0xa0000000;
 static u16 aspeed_fsi_divisor = FSI_DIVISOR_DEFAULT;
 module_param_named(bus_div,aspeed_fsi_divisor, ushort, 0);
 
-#define OPB_POLL_TIMEOUT		10000
+#define OPB_POLL_TIMEOUT		500
 
 static int __opb_write(struct fsi_master_aspeed *aspeed, u32 addr,
 		       u32 val, u32 transfer_size)
@@ -101,11 +101,15 @@ static int __opb_write(struct fsi_master_aspeed *aspeed, u32 addr,
 	u32 reg, status;
 	int ret;
 
-	writel(CMD_WRITE, base + OPB0_RW);
-	writel(transfer_size, base + OPB0_XFER_SIZE);
-	writel(addr, base + OPB0_FSI_ADDR);
-	writel(val, base + OPB0_FSI_DATA_W);
-	writel(0x1, base + OPB_IRQ_CLEAR);
+	/*
+	 * The ordering of these writes up until the trigger
+	 * write does not matter, so use writel_relaxed.
+	 */
+	writel_relaxed(CMD_WRITE, base + OPB0_RW);
+	writel_relaxed(transfer_size, base + OPB0_XFER_SIZE);
+	writel_relaxed(addr, base + OPB0_FSI_ADDR);
+	writel_relaxed(val, base + OPB0_FSI_DATA_W);
+	writel_relaxed(0x1, base + OPB_IRQ_CLEAR);
 	writel(0x1, base + OPB_TRIGGER);
 
 	ret = readl_poll_timeout(base + OPB_IRQ_STATUS, reg,
@@ -149,10 +153,14 @@ static int __opb_read(struct fsi_master_aspeed *aspeed, uint32_t addr,
 	u32 result, reg;
 	int status, ret;
 
-	writel(CMD_READ, base + OPB0_RW);
-	writel(transfer_size, base + OPB0_XFER_SIZE);
-	writel(addr, base + OPB0_FSI_ADDR);
-	writel(0x1, base + OPB_IRQ_CLEAR);
+	/*
+	 * The ordering of these writes up until the trigger
+	 * write does not matter, so use writel_relaxed.
+	 */
+	writel_relaxed(CMD_READ, base + OPB0_RW);
+	writel_relaxed(transfer_size, base + OPB0_XFER_SIZE);
+	writel_relaxed(addr, base + OPB0_FSI_ADDR);
+	writel_relaxed(0x1, base + OPB_IRQ_CLEAR);
 	writel(0x1, base + OPB_TRIGGER);
 
 	ret = readl_poll_timeout(base + OPB_IRQ_STATUS, reg,
@@ -525,7 +533,6 @@ static int tacoma_cabled_fsi_fixup(struct device *dev)
 static int fsi_master_aspeed_probe(struct platform_device *pdev)
 {
 	struct fsi_master_aspeed *aspeed;
-	struct resource *res;
 	int rc, links, reg;
 	__be32 raw;
 
@@ -535,26 +542,28 @@ static int fsi_master_aspeed_probe(struct platform_device *pdev)
 		return rc;
 	}
 
-	aspeed = devm_kzalloc(&pdev->dev, sizeof(*aspeed), GFP_KERNEL);
+	aspeed = kzalloc(sizeof(*aspeed), GFP_KERNEL);
 	if (!aspeed)
 		return -ENOMEM;
 
 	aspeed->dev = &pdev->dev;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	aspeed->base = devm_ioremap_resource(&pdev->dev, res);
-	if (IS_ERR(aspeed->base))
-		return PTR_ERR(aspeed->base);
+	aspeed->base = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(aspeed->base)) {
+		rc = PTR_ERR(aspeed->base);
+		goto err_free_aspeed;
+	}
 
 	aspeed->clk = devm_clk_get(aspeed->dev, NULL);
 	if (IS_ERR(aspeed->clk)) {
 		dev_err(aspeed->dev, "couldn't get clock\n");
-		return PTR_ERR(aspeed->clk);
+		rc = PTR_ERR(aspeed->clk);
+		goto err_free_aspeed;
 	}
 	rc = clk_prepare_enable(aspeed->clk);
 	if (rc) {
 		dev_err(aspeed->dev, "couldn't enable clock\n");
-		return rc;
+		goto err_free_aspeed;
 	}
 
 	rc = setup_cfam_reset(aspeed);
@@ -589,7 +598,7 @@ static int fsi_master_aspeed_probe(struct platform_device *pdev)
 	rc = opb_readl(aspeed, ctrl_base + FSI_MVER, &raw);
 	if (rc) {
 		dev_err(&pdev->dev, "failed to read hub version\n");
-		return rc;
+		goto err_release;
 	}
 
 	reg = be32_to_cpu(raw);
@@ -628,6 +637,8 @@ static int fsi_master_aspeed_probe(struct platform_device *pdev)
 
 err_release:
 	clk_disable_unprepare(aspeed->clk);
+err_free_aspeed:
+	kfree(aspeed);
 	return rc;
 }
 
@@ -645,6 +656,7 @@ static const struct of_device_id fsi_master_aspeed_match[] = {
 	{ .compatible = "aspeed,ast2600-fsi-master" },
 	{ },
 };
+MODULE_DEVICE_TABLE(of, fsi_master_aspeed_match);
 
 static struct platform_driver fsi_master_aspeed_driver = {
 	.driver = {

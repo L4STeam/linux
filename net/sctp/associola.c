@@ -98,6 +98,9 @@ static struct sctp_association *sctp_association_init(
 	 * sock configured value.
 	 */
 	asoc->hbinterval = msecs_to_jiffies(sp->hbinterval);
+	asoc->probe_interval = msecs_to_jiffies(sp->probe_interval);
+
+	asoc->encap_port = sp->encap_port;
 
 	/* Initialize path max retrans value. */
 	asoc->pathmaxrxt = sp->pathmaxrxt;
@@ -226,9 +229,8 @@ static struct sctp_association *sctp_association_init(
 	if (!sctp_ulpq_init(&asoc->ulpq, asoc))
 		goto fail_init;
 
-	if (sctp_stream_init(&asoc->stream, asoc->c.sinit_num_ostreams,
-			     0, gfp))
-		goto fail_init;
+	if (sctp_stream_init(&asoc->stream, asoc->c.sinit_num_ostreams, 0, gfp))
+		goto stream_free;
 
 	/* Initialize default path MTU. */
 	asoc->pathmtu = sp->pathmtu;
@@ -623,6 +625,9 @@ struct sctp_transport *sctp_assoc_add_peer(struct sctp_association *asoc,
 	 * association configured value.
 	 */
 	peer->hbinterval = asoc->hbinterval;
+	peer->probe_interval = asoc->probe_interval;
+
+	peer->encap_port = asoc->encap_port;
 
 	/* Set the path max_retrans.  */
 	peer->pathmaxrxt = asoc->pathmaxrxt;
@@ -709,6 +714,8 @@ struct sctp_transport *sctp_assoc_add_peer(struct sctp_association *asoc,
 		sctp_transport_free(peer);
 		return NULL;
 	}
+
+	sctp_transport_pl_reset(peer);
 
 	/* Attach the remote transport to our asoc.  */
 	list_add_tail_rcu(&peer->transports, &asoc->peer.transport_addr_list);
@@ -808,6 +815,7 @@ void sctp_assoc_control_transport(struct sctp_association *asoc,
 			spc_state = SCTP_ADDR_CONFIRMED;
 
 		transport->state = SCTP_ACTIVE;
+		sctp_transport_pl_reset(transport);
 		break;
 
 	case SCTP_TRANSPORT_DOWN:
@@ -817,6 +825,7 @@ void sctp_assoc_control_transport(struct sctp_association *asoc,
 		 */
 		if (transport->state != SCTP_UNCONFIRMED) {
 			transport->state = SCTP_INACTIVE;
+			sctp_transport_pl_reset(transport);
 			spc_state = SCTP_ADDR_UNREACHABLE;
 		} else {
 			sctp_transport_dst_release(transport);

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: (GPL-2.0 OR MIT)
 /* Google virtual Ethernet (gve) driver
  *
- * Copyright (C) 2015-2019 Google, Inc.
+ * Copyright (C) 2015-2021 Google, Inc.
  */
 
+#include <linux/ethtool.h>
 #include <linux/rtnetlink.h>
 #include "gve.h"
 #include "gve_adminq.h"
@@ -13,9 +14,9 @@ static void gve_get_drvinfo(struct net_device *netdev,
 {
 	struct gve_priv *priv = netdev_priv(netdev);
 
-	strlcpy(info->driver, "gve", sizeof(info->driver));
-	strlcpy(info->version, gve_version_str, sizeof(info->version));
-	strlcpy(info->bus_info, pci_name(priv->pdev), sizeof(info->bus_info));
+	strscpy(info->driver, "gve", sizeof(info->driver));
+	strscpy(info->version, gve_version_str, sizeof(info->version));
+	strscpy(info->bus_info, pci_name(priv->pdev), sizeof(info->bus_info));
 }
 
 static void gve_set_msglevel(struct net_device *netdev, u32 value)
@@ -50,6 +51,7 @@ static const char gve_gstrings_rx_stats[][ETH_GSTRING_LEN] = {
 static const char gve_gstrings_tx_stats[][ETH_GSTRING_LEN] = {
 	"tx_posted_desc[%u]", "tx_completed_desc[%u]", "tx_bytes[%u]",
 	"tx_wake[%u]", "tx_stop[%u]", "tx_event_counter[%u]",
+	"tx_dma_mapping_error[%u]",
 };
 
 static const char gve_gstrings_adminq_stats[][ETH_GSTRING_LEN] = {
@@ -172,14 +174,14 @@ gve_get_ethtool_stats(struct net_device *netdev,
 				struct gve_rx_ring *rx = &priv->rx[ring];
 
 				start =
-				  u64_stats_fetch_begin(&priv->rx[ring].statss);
+				  u64_stats_fetch_begin_irq(&priv->rx[ring].statss);
 				tmp_rx_pkts = rx->rpackets;
 				tmp_rx_bytes = rx->rbytes;
 				tmp_rx_skb_alloc_fail = rx->rx_skb_alloc_fail;
 				tmp_rx_buf_alloc_fail = rx->rx_buf_alloc_fail;
 				tmp_rx_desc_err_dropped_pkt =
 					rx->rx_desc_err_dropped_pkt;
-			} while (u64_stats_fetch_retry(&priv->rx[ring].statss,
+			} while (u64_stats_fetch_retry_irq(&priv->rx[ring].statss,
 						       start));
 			rx_pkts += tmp_rx_pkts;
 			rx_bytes += tmp_rx_bytes;
@@ -193,10 +195,10 @@ gve_get_ethtool_stats(struct net_device *netdev,
 		if (priv->tx) {
 			do {
 				start =
-				  u64_stats_fetch_begin(&priv->tx[ring].statss);
+				  u64_stats_fetch_begin_irq(&priv->tx[ring].statss);
 				tmp_tx_pkts = priv->tx[ring].pkt_done;
 				tmp_tx_bytes = priv->tx[ring].bytes_done;
-			} while (u64_stats_fetch_retry(&priv->tx[ring].statss,
+			} while (u64_stats_fetch_retry_irq(&priv->tx[ring].statss,
 						       start));
 			tx_pkts += tmp_tx_pkts;
 			tx_bytes += tmp_tx_bytes;
@@ -254,13 +256,13 @@ gve_get_ethtool_stats(struct net_device *netdev,
 			data[i++] = rx->cnt;
 			do {
 				start =
-				  u64_stats_fetch_begin(&priv->rx[ring].statss);
+				  u64_stats_fetch_begin_irq(&priv->rx[ring].statss);
 				tmp_rx_bytes = rx->rbytes;
 				tmp_rx_skb_alloc_fail = rx->rx_skb_alloc_fail;
 				tmp_rx_buf_alloc_fail = rx->rx_buf_alloc_fail;
 				tmp_rx_desc_err_dropped_pkt =
 					rx->rx_desc_err_dropped_pkt;
-			} while (u64_stats_fetch_retry(&priv->rx[ring].statss,
+			} while (u64_stats_fetch_retry_irq(&priv->rx[ring].statss,
 						       start));
 			data[i++] = tmp_rx_bytes;
 			/* rx dropped packets */
@@ -309,19 +311,28 @@ gve_get_ethtool_stats(struct net_device *netdev,
 		for (ring = 0; ring < priv->tx_cfg.num_queues; ring++) {
 			struct gve_tx_ring *tx = &priv->tx[ring];
 
-			data[i++] = tx->req;
-			data[i++] = tx->done;
+			if (gve_is_gqi(priv)) {
+				data[i++] = tx->req;
+				data[i++] = tx->done;
+			} else {
+				/* DQO doesn't currently support
+				 * posted/completed descriptor counts;
+				 */
+				data[i++] = 0;
+				data[i++] = 0;
+			}
 			do {
 				start =
-				  u64_stats_fetch_begin(&priv->tx[ring].statss);
+				  u64_stats_fetch_begin_irq(&priv->tx[ring].statss);
 				tmp_tx_bytes = tx->bytes_done;
-			} while (u64_stats_fetch_retry(&priv->tx[ring].statss,
+			} while (u64_stats_fetch_retry_irq(&priv->tx[ring].statss,
 						       start));
 			data[i++] = tmp_tx_bytes;
 			data[i++] = tx->wake_queue;
 			data[i++] = tx->stop_queue;
 			data[i++] = be32_to_cpu(gve_tx_load_event_counter(priv,
 									  tx));
+			data[i++] = tx->dma_mapping_error;
 			/* stats from NIC */
 			if (skip_nic_stats) {
 				/* skip NIC tx stats */
@@ -385,7 +396,7 @@ static int gve_set_channels(struct net_device *netdev,
 
 	gve_get_channels(netdev, &old_settings);
 
-	/* Changing combined is not allowed allowed */
+	/* Changing combined is not allowed */
 	if (cmd->combined_count != old_settings.combined_count)
 		return -EINVAL;
 
@@ -450,11 +461,16 @@ static int gve_set_tunable(struct net_device *netdev,
 
 	switch (etuna->id) {
 	case ETHTOOL_RX_COPYBREAK:
+	{
+		u32 max_copybreak = gve_is_gqi(priv) ?
+			(PAGE_SIZE / 2) : priv->data_buffer_size_dqo;
+
 		len = *(u32 *)value;
-		if (len > PAGE_SIZE / 2)
+		if (len > max_copybreak)
 			return -EINVAL;
 		priv->rx_copybreak = len;
 		return 0;
+	}
 	default:
 		return -EOPNOTSUPP;
 	}

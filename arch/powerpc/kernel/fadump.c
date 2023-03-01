@@ -24,13 +24,14 @@
 #include <linux/slab.h>
 #include <linux/cma.h>
 #include <linux/hugetlb.h>
+#include <linux/debugfs.h>
 
-#include <asm/debugfs.h>
 #include <asm/page.h>
 #include <asm/prom.h>
 #include <asm/fadump.h>
 #include <asm/fadump-internal.h>
 #include <asm/setup.h>
+#include <asm/interrupt.h>
 
 /*
  * The CPU who acquired the lock to trigger the fadump crash should
@@ -44,22 +45,21 @@ static struct fw_dump fw_dump;
 
 static void __init fadump_reserve_crash_area(u64 base);
 
-struct kobject *fadump_kobj;
-
 #ifndef CONFIG_PRESERVE_FA_DUMP
+
+static struct kobject *fadump_kobj;
 
 static atomic_t cpus_in_fadump;
 static DEFINE_MUTEX(fadump_mutex);
 
-struct fadump_mrange_info crash_mrange_info = { "crash", NULL, 0, 0, 0, false };
+static struct fadump_mrange_info crash_mrange_info = { "crash", NULL, 0, 0, 0, false };
 
 #define RESERVED_RNGS_SZ	16384 /* 16K - 128 entries */
 #define RESERVED_RNGS_CNT	(RESERVED_RNGS_SZ / \
 				 sizeof(struct fadump_memory_range))
 static struct fadump_memory_range rngs[RESERVED_RNGS_CNT];
-struct fadump_mrange_info reserved_mrange_info = { "reserved", rngs,
-						   RESERVED_RNGS_SZ, 0,
-						   RESERVED_RNGS_CNT, true };
+static struct fadump_mrange_info
+reserved_mrange_info = { "reserved", rngs, RESERVED_RNGS_SZ, 0, RESERVED_RNGS_CNT, true };
 
 static void __init early_init_dt_scan_reserved_ranges(unsigned long node);
 
@@ -79,7 +79,7 @@ static struct cma *fadump_cma;
  * But for some reason even if it fails we still have the memory reservation
  * with us and we can still continue doing fadump.
  */
-int __init fadump_cma_init(void)
+static int __init fadump_cma_init(void)
 {
 	unsigned long long base, size;
 	int rc;
@@ -292,7 +292,7 @@ static void fadump_show_config(void)
  * that is required for a kernel to boot successfully.
  *
  */
-static inline u64 fadump_calculate_reserve_size(void)
+static __init u64 fadump_calculate_reserve_size(void)
 {
 	u64 base, size, bootmem_min;
 	int ret;
@@ -728,7 +728,7 @@ void crash_fadump(struct pt_regs *regs, const char *str)
 	 * If we came in via system reset, wait a while for the secondary
 	 * CPUs to enter.
 	 */
-	if (TRAP(&(fdh->regs)) == 0x100) {
+	if (TRAP(&(fdh->regs)) == INTERRUPT_SYSTEM_RESET) {
 		msecs = CRASH_TIMEOUT;
 		while ((atomic_read(&cpus_in_fadump) < ncpus) && (--msecs > 0))
 			mdelay(1);
@@ -861,7 +861,6 @@ static int fadump_alloc_mem_ranges(struct fadump_mrange_info *mrange_info)
 				       sizeof(struct fadump_memory_range));
 	return 0;
 }
-
 static inline int fadump_add_mem_range(struct fadump_mrange_info *mrange_info,
 				       u64 base, u64 end)
 {
@@ -880,7 +879,12 @@ static inline int fadump_add_mem_range(struct fadump_mrange_info *mrange_info,
 		start = mem_ranges[mrange_info->mem_range_cnt - 1].base;
 		size  = mem_ranges[mrange_info->mem_range_cnt - 1].size;
 
-		if ((start + size) == base)
+		/*
+		 * Boot memory area needs separate PT_LOAD segment(s) as it
+		 * is moved to a different location at the time of crash.
+		 * So, fold only if the region is not boot memory area.
+		 */
+		if ((start + size) == base && start >= fw_dump.boot_mem_top)
 			is_adjacent = true;
 	}
 	if (!is_adjacent) {
@@ -1557,7 +1561,7 @@ static void fadump_init_files(void)
 		return;
 	}
 
-	debugfs_create_file("fadump_region", 0444, powerpc_debugfs_root, NULL,
+	debugfs_create_file("fadump_region", 0444, arch_debugfs_dir, NULL,
 			    &fadump_region_fops);
 
 	if (fw_dump.dump_active) {
@@ -1640,6 +1644,14 @@ int __init setup_fadump(void)
 	/* Initialize the kernel dump memory structure for FAD registration. */
 	else if (fw_dump.reserve_dump_area_size)
 		fw_dump.ops->fadump_init_mem_struct(&fw_dump);
+
+	/*
+	 * In case of panic, fadump is triggered via ppc_panic_event()
+	 * panic notifier. Setting crash_kexec_post_notifiers to 'true'
+	 * lets panic() function take crash friendly path before panic
+	 * notifiers are invoked.
+	 */
+	crash_kexec_post_notifiers = true;
 
 	return 1;
 }

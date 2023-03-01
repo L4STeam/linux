@@ -56,7 +56,7 @@
 /* Validity Bit Mode */
 #define SPDIFRX_MR_VBMODE_MASK		GENAMSK(1, 1)
 #define SPDIFRX_MR_VBMODE_ALWAYS_LOAD \
-	(0 << 1)	/* Load sample regardles of validity bit value */
+	(0 << 1)	/* Load sample regardless of validity bit value */
 #define SPDIFRX_MR_VBMODE_DISCARD_IF_VB1 \
 	(1 << 1)	/* Load sample only if validity bit is 0 */
 
@@ -288,15 +288,17 @@ static void mchp_spdifrx_isr_blockend_en(struct mchp_spdifrx_dev *dev)
 	spin_unlock_irqrestore(&dev->blockend_lock, flags);
 }
 
-/* called from atomic context only */
+/* called from atomic/non-atomic context */
 static void mchp_spdifrx_isr_blockend_dis(struct mchp_spdifrx_dev *dev)
 {
-	spin_lock(&dev->blockend_lock);
+	unsigned long flags;
+
+	spin_lock_irqsave(&dev->blockend_lock, flags);
 	dev->blockend_refcount--;
 	/* don't enable BLOCKEND interrupt if it's already enabled */
 	if (dev->blockend_refcount == 0)
 		regmap_write(dev->regmap, SPDIFRX_IDR, SPDIFRX_IR_BLOCKEND);
-	spin_unlock(&dev->blockend_lock);
+	spin_unlock_irqrestore(&dev->blockend_lock, flags);
 }
 
 static irqreturn_t mchp_spdif_interrupt(int irq, void *dev_id)
@@ -519,7 +521,7 @@ static int mchp_spdifrx_cs_get(struct mchp_spdifrx_dev *dev,
 	/* check for new data available */
 	ret = wait_for_completion_interruptible_timeout(&ch_stat->done,
 							msecs_to_jiffies(100));
-	/* IP might not be started or valid stream might not be prezent */
+	/* IP might not be started or valid stream might not be present */
 	if (ret < 0) {
 		dev_dbg(dev->dev, "channel status for channel %d timeout\n",
 			channel);
@@ -571,10 +573,11 @@ static int mchp_spdifrx_subcode_ch_get(struct mchp_spdifrx_dev *dev,
 	mchp_spdifrx_isr_blockend_en(dev);
 	ret = wait_for_completion_interruptible_timeout(&user_data->done,
 							msecs_to_jiffies(100));
-	/* IP might not be started or valid stream might not be prezent */
+	/* IP might not be started or valid stream might not be present */
 	if (ret <= 0) {
 		dev_dbg(dev->dev, "user data for channel %d timeout\n",
 			channel);
+		mchp_spdifrx_isr_blockend_dis(dev);
 		return ret;
 	}
 

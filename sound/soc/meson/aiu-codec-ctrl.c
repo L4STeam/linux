@@ -57,7 +57,7 @@ static int aiu_codec_ctrl_mux_put_enum(struct snd_kcontrol *kcontrol,
 
 	snd_soc_dapm_mux_update_power(dapm, kcontrol, mux, e, NULL);
 
-	return 0;
+	return 1;
 }
 
 static SOC_ENUM_SINGLE_DECL(aiu_hdmi_ctrl_mux_enum, AIU_HDMI_CLK_DATA_CTRL,
@@ -125,7 +125,7 @@ static const struct snd_soc_dapm_route aiu_hdmi_ctrl_routes[] = {
 };
 
 static int aiu_hdmi_of_xlate_dai_name(struct snd_soc_component *component,
-				      struct of_phandle_args *args,
+				      const struct of_phandle_args *args,
 				      const char **dai_name)
 {
 	return aiu_of_xlate_dai_name(component, args, dai_name, AIU_HDMI);

@@ -292,6 +292,10 @@ bool afs_select_fileserver(struct afs_operation *op)
 		op->error = error;
 		goto iterate_address;
 
+	case -ENETRESET:
+		pr_warn("kAFS: Peer reset %s (op=%x)\n",
+			op->type ? op->type->name : "???", op->debug_id);
+		fallthrough;
 	case -ECONNRESET:
 		_debug("call reset");
 		op->error = error;
@@ -374,6 +378,7 @@ selected_server:
 	if (vnode->cb_server != server) {
 		vnode->cb_server = server;
 		vnode->cb_s_break = server->cb_s_break;
+		vnode->cb_fs_s_break = atomic_read(&server->cell->fs_s_break);
 		vnode->cb_v_break = vnode->volume->cb_v_break;
 		clear_bit(AFS_VNODE_CB_PROMISED, &vnode->flags);
 	}

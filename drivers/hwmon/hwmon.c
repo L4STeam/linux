@@ -79,7 +79,7 @@ static struct attribute *hwmon_dev_attrs[] = {
 static umode_t hwmon_dev_name_is_visible(struct kobject *kobj,
 					 struct attribute *attr, int n)
 {
-	struct device *dev = container_of(kobj, struct device, kobj);
+	struct device *dev = kobj_to_dev(kobj);
 
 	if (to_hwmon_device(dev)->name == NULL)
 		return 0;
@@ -153,8 +153,44 @@ static int hwmon_thermal_get_temp(void *data, int *temp)
 	return 0;
 }
 
+static int hwmon_thermal_set_trips(void *data, int low, int high)
+{
+	struct hwmon_thermal_data *tdata = data;
+	struct hwmon_device *hwdev = to_hwmon_device(tdata->dev);
+	const struct hwmon_chip_info *chip = hwdev->chip;
+	const struct hwmon_channel_info **info = chip->info;
+	unsigned int i;
+	int err;
+
+	if (!chip->ops->write)
+		return 0;
+
+	for (i = 0; info[i] && info[i]->type != hwmon_temp; i++)
+		continue;
+
+	if (!info[i])
+		return 0;
+
+	if (info[i]->config[tdata->index] & HWMON_T_MIN) {
+		err = chip->ops->write(tdata->dev, hwmon_temp,
+				       hwmon_temp_min, tdata->index, low);
+		if (err && err != -EOPNOTSUPP)
+			return err;
+	}
+
+	if (info[i]->config[tdata->index] & HWMON_T_MAX) {
+		err = chip->ops->write(tdata->dev, hwmon_temp,
+				       hwmon_temp_max, tdata->index, high);
+		if (err && err != -EOPNOTSUPP)
+			return err;
+	}
+
+	return 0;
+}
+
 static const struct thermal_zone_of_device_ops hwmon_thermal_ops = {
 	.get_temp = hwmon_thermal_get_temp,
+	.set_trips = hwmon_thermal_set_trips,
 };
 
 static void hwmon_thermal_remove_sensor(void *data)
@@ -178,12 +214,14 @@ static int hwmon_thermal_add_sensor(struct device *dev, int index)
 
 	tzd = devm_thermal_zone_of_sensor_register(dev, index, tdata,
 						   &hwmon_thermal_ops);
-	/*
-	 * If CONFIG_THERMAL_OF is disabled, this returns -ENODEV,
-	 * so ignore that error but forward any other error.
-	 */
-	if (IS_ERR(tzd) && (PTR_ERR(tzd) != -ENODEV))
-		return PTR_ERR(tzd);
+	if (IS_ERR(tzd)) {
+		if (PTR_ERR(tzd) != -ENODEV)
+			return PTR_ERR(tzd);
+		dev_info(dev, "temp%d_input not attached to any thermal zone\n",
+			 index + 1);
+		devm_kfree(dev, tdata);
+		return 0;
+	}
 
 	err = devm_add_action(dev, hwmon_thermal_remove_sensor, &tdata->node);
 	if (err)
@@ -760,8 +798,10 @@ __hwmon_device_register(struct device *dev, const char *name, void *drvdata,
 	dev_set_drvdata(hdev, drvdata);
 	dev_set_name(hdev, HWMON_ID_FORMAT, id);
 	err = device_register(hdev);
-	if (err)
-		goto free_hwmon;
+	if (err) {
+		put_device(hdev);
+		goto ida_remove;
+	}
 
 	INIT_LIST_HEAD(&hwdev->tzdata);
 

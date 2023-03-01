@@ -34,9 +34,9 @@ struct wdat_instruction {
  * @period: How long is one watchdog period in ms
  * @stopped_in_sleep: Is this watchdog stopped by the firmware in S1-S5
  * @stopped: Was the watchdog stopped by the driver in suspend
- * @actions: An array of instruction lists indexed by an action number from
- *           the WDAT table. There can be %NULL entries for not implemented
- *           actions.
+ * @instructions: An array of instruction lists indexed by an action number from
+ *                the WDAT table. There can be %NULL entries for not implemented
+ *                actions.
  */
 struct wdat_wdt {
 	struct platform_device *pdev;
@@ -208,7 +208,7 @@ static int wdat_wdt_enable_reboot(struct wdat_wdt *wdat)
 	/*
 	 * WDAT specification says that the watchdog is required to reboot
 	 * the system when it fires. However, it also states that it is
-	 * recommeded to make it configurable through hardware register. We
+	 * recommended to make it configurable through hardware register. We
 	 * enable reboot now if it is configurable, just in case.
 	 */
 	ret = wdat_wdt_run_action(wdat, ACPI_WDAT_SET_REBOOT, 0, NULL);
@@ -462,6 +462,7 @@ static int wdat_wdt_probe(struct platform_device *pdev)
 		return ret;
 
 	watchdog_set_nowayout(&wdat->wdd, nowayout);
+	watchdog_stop_on_reboot(&wdat->wdd);
 	return devm_watchdog_register_device(dev, &wdat->wdd);
 }
 
@@ -475,7 +476,7 @@ static int wdat_wdt_suspend_noirq(struct device *dev)
 		return 0;
 
 	/*
-	 * We need to stop the watchdog if firmare is not doing it or if we
+	 * We need to stop the watchdog if firmware is not doing it or if we
 	 * are going suspend to idle (where firmware is not involved). If
 	 * firmware is stopping the watchdog we kick it here one more time
 	 * to give it some time.

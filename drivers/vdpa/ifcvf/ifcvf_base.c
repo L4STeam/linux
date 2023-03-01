@@ -133,6 +133,8 @@ int ifcvf_init_hw(struct ifcvf_hw *hw, struct pci_dev *pdev)
 					      &hw->notify_off_multiplier);
 			hw->notify_bar = cap.bar;
 			hw->notify_base = get_cap_addr(hw, &cap);
+			hw->notify_base_pa = pci_resource_start(pdev, cap.bar) +
+					le32_to_cpu(cap.offset);
 			IFCVF_DBG(pdev, "hw->notify_base = %p\n",
 				  hw->notify_base);
 			break;
@@ -141,8 +143,8 @@ int ifcvf_init_hw(struct ifcvf_hw *hw, struct pci_dev *pdev)
 			IFCVF_DBG(pdev, "hw->isr = %p\n", hw->isr);
 			break;
 		case VIRTIO_PCI_CAP_DEVICE_CFG:
-			hw->net_cfg = get_cap_addr(hw, &cap);
-			IFCVF_DBG(pdev, "hw->net_cfg = %p\n", hw->net_cfg);
+			hw->dev_cfg = get_cap_addr(hw, &cap);
+			IFCVF_DBG(pdev, "hw->dev_cfg = %p\n", hw->dev_cfg);
 			break;
 		}
 
@@ -151,15 +153,19 @@ next:
 	}
 
 	if (hw->common_cfg == NULL || hw->notify_base == NULL ||
-	    hw->isr == NULL || hw->net_cfg == NULL) {
+	    hw->isr == NULL || hw->dev_cfg == NULL) {
 		IFCVF_ERR(pdev, "Incomplete PCI capabilities\n");
 		return -EIO;
 	}
 
-	for (i = 0; i < IFCVF_MAX_QUEUE_PAIRS * 2; i++) {
+	hw->nr_vring = ifc_ioread16(&hw->common_cfg->num_queues);
+
+	for (i = 0; i < hw->nr_vring; i++) {
 		ifc_iowrite16(i, &hw->common_cfg->queue_select);
 		notify_off = ifc_ioread16(&hw->common_cfg->queue_notify_off);
 		hw->vring[i].notify_addr = hw->notify_base +
+			notify_off * hw->notify_off_multiplier;
+		hw->vring[i].notify_pa = hw->notify_base_pa +
 			notify_off * hw->notify_off_multiplier;
 	}
 
@@ -168,7 +174,7 @@ next:
 	IFCVF_DBG(pdev,
 		  "PCI capability mapping: common cfg: %p, notify base: %p\n, isr cfg: %p, device cfg: %p, multiplier: %u\n",
 		  hw->common_cfg, hw->notify_base, hw->isr,
-		  hw->net_cfg, hw->notify_off_multiplier);
+		  hw->dev_cfg, hw->notify_off_multiplier);
 
 	return 0;
 }
@@ -202,10 +208,11 @@ static void ifcvf_add_status(struct ifcvf_hw *hw, u8 status)
 	ifcvf_get_status(hw);
 }
 
-u64 ifcvf_get_features(struct ifcvf_hw *hw)
+u64 ifcvf_get_hw_features(struct ifcvf_hw *hw)
 {
 	struct virtio_pci_common_cfg __iomem *cfg = hw->common_cfg;
 	u32 features_lo, features_hi;
+	u64 features;
 
 	ifc_iowrite32(0, &cfg->device_feature_select);
 	features_lo = ifc_ioread32(&cfg->device_feature);
@@ -213,36 +220,76 @@ u64 ifcvf_get_features(struct ifcvf_hw *hw)
 	ifc_iowrite32(1, &cfg->device_feature_select);
 	features_hi = ifc_ioread32(&cfg->device_feature);
 
-	return ((u64)features_hi << 32) | features_lo;
+	features = ((u64)features_hi << 32) | features_lo;
+
+	return features;
 }
 
-void ifcvf_read_net_config(struct ifcvf_hw *hw, u64 offset,
+u64 ifcvf_get_features(struct ifcvf_hw *hw)
+{
+	return hw->hw_features;
+}
+
+int ifcvf_verify_min_features(struct ifcvf_hw *hw, u64 features)
+{
+	struct ifcvf_adapter *ifcvf = vf_to_adapter(hw);
+
+	if (!(features & BIT_ULL(VIRTIO_F_ACCESS_PLATFORM)) && features) {
+		IFCVF_ERR(ifcvf->pdev, "VIRTIO_F_ACCESS_PLATFORM is not negotiated\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+u32 ifcvf_get_config_size(struct ifcvf_hw *hw)
+{
+	struct ifcvf_adapter *adapter;
+	u32 config_size;
+
+	adapter = vf_to_adapter(hw);
+	switch (hw->dev_type) {
+	case VIRTIO_ID_NET:
+		config_size = sizeof(struct virtio_net_config);
+		break;
+	case VIRTIO_ID_BLOCK:
+		config_size = sizeof(struct virtio_blk_config);
+		break;
+	default:
+		config_size = 0;
+		IFCVF_ERR(adapter->pdev, "VIRTIO ID %u not supported\n", hw->dev_type);
+	}
+
+	return config_size;
+}
+
+void ifcvf_read_dev_config(struct ifcvf_hw *hw, u64 offset,
 			   void *dst, int length)
 {
 	u8 old_gen, new_gen, *p;
 	int i;
 
-	WARN_ON(offset + length > sizeof(struct virtio_net_config));
+	WARN_ON(offset + length > hw->config_size);
 	do {
 		old_gen = ifc_ioread8(&hw->common_cfg->config_generation);
 		p = dst;
 		for (i = 0; i < length; i++)
-			*p++ = ifc_ioread8(hw->net_cfg + offset + i);
+			*p++ = ifc_ioread8(hw->dev_cfg + offset + i);
 
 		new_gen = ifc_ioread8(&hw->common_cfg->config_generation);
 	} while (old_gen != new_gen);
 }
 
-void ifcvf_write_net_config(struct ifcvf_hw *hw, u64 offset,
+void ifcvf_write_dev_config(struct ifcvf_hw *hw, u64 offset,
 			    const void *src, int length)
 {
 	const u8 *p;
 	int i;
 
 	p = src;
-	WARN_ON(offset + length > sizeof(struct virtio_net_config));
+	WARN_ON(offset + length > hw->config_size);
 	for (i = 0; i < length; i++)
-		ifc_iowrite8(*p++, hw->net_cfg + offset + i);
+		ifc_iowrite8(*p++, hw->dev_cfg + offset + i);
 }
 
 static void ifcvf_set_features(struct ifcvf_hw *hw, u64 features)
@@ -280,7 +327,7 @@ u16 ifcvf_get_vq_state(struct ifcvf_hw *hw, u16 qid)
 	u32 q_pair_id;
 
 	ifcvf_lm = (struct ifcvf_lm_cfg __iomem *)hw->lm_cfg;
-	q_pair_id = qid / (IFCVF_MAX_QUEUE_PAIRS * 2);
+	q_pair_id = qid / 2;
 	avail_idx_addr = &ifcvf_lm->vring_lm_cfg[q_pair_id].idx_addr[qid % 2];
 	last_avail_idx = ifc_ioread16(avail_idx_addr);
 
@@ -294,7 +341,7 @@ int ifcvf_set_vq_state(struct ifcvf_hw *hw, u16 qid, u16 num)
 	u32 q_pair_id;
 
 	ifcvf_lm = (struct ifcvf_lm_cfg __iomem *)hw->lm_cfg;
-	q_pair_id = qid / (IFCVF_MAX_QUEUE_PAIRS * 2);
+	q_pair_id = qid / 2;
 	avail_idx_addr = &ifcvf_lm->vring_lm_cfg[q_pair_id].idx_addr[qid % 2];
 	hw->vring[qid].last_avail_idx = num;
 	ifc_iowrite16(num, avail_idx_addr);

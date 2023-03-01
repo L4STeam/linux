@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-2.0
-# Copyright 2020 NXP Semiconductors
+# Copyright 2020 NXP
 
 WAIT_TIME=1
 NUM_NETIFS=4
@@ -185,7 +185,7 @@ setup_prepare()
 
 	tc filter add dev $eth0 ingress chain $(IS2 0 0) pref 1 \
 		protocol ipv4 flower skip_sw ip_proto udp dst_port 5201 \
-		action police rate 50mbit burst 64k \
+		action police rate 50mbit burst 64k conform-exceed drop/pipe \
 		action goto chain $(IS2 1 0)
 }
 

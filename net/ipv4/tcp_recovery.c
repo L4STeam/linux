@@ -19,7 +19,8 @@ static u32 tcp_rack_reo_wnd(const struct sock *sk)
 			return 0;
 
 		if (tp->sacked_out >= tp->reordering &&
-		    !(sock_net(sk)->ipv4.sysctl_tcp_recovery & TCP_RACK_NO_DUPTHRESH))
+		    !(READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_recovery) &
+		      TCP_RACK_NO_DUPTHRESH))
 			return 0;
 	}
 
@@ -154,6 +155,7 @@ void tcp_rack_reo_timeout(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	u32 timeout, prior_inflight;
+	u32 lost = tp->lost;
 
 	prior_inflight = tcp_packets_in_flight(tp);
 	tcp_rack_detect_loss(sk, &timeout);
@@ -161,7 +163,7 @@ void tcp_rack_reo_timeout(struct sock *sk)
 		if (inet_csk(sk)->icsk_ca_state != TCP_CA_Recovery) {
 			tcp_enter_recovery(sk, false);
 			if (!inet_csk(sk)->icsk_ca_ops->cong_control)
-				tcp_cwnd_reduction(sk, 1, 0);
+				tcp_cwnd_reduction(sk, 1, tp->lost - lost, 0);
 		}
 		tcp_xmit_retransmit_queue(sk);
 	}
@@ -171,7 +173,8 @@ void tcp_rack_reo_timeout(struct sock *sk)
 
 /* Updates the RACK's reo_wnd based on DSACK and no. of recoveries.
  *
- * If DSACK is received, increment reo_wnd by min_rtt/4 (upper bounded
+ * If a DSACK is received that seems like it may have been due to reordering
+ * triggering fast recovery, increment reo_wnd by min_rtt/4 (upper bounded
  * by srtt), since there is possibility that spurious retransmission was
  * due to reordering delay longer than reo_wnd.
  *
@@ -190,7 +193,8 @@ void tcp_rack_update_reo_wnd(struct sock *sk, struct rate_sample *rs)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
-	if (sock_net(sk)->ipv4.sysctl_tcp_recovery & TCP_RACK_STATIC_REO_WND ||
+	if ((READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_recovery) &
+	     TCP_RACK_STATIC_REO_WND) ||
 	    !rs->prior_delivered)
 		return;
 

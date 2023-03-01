@@ -26,15 +26,6 @@
 #include <asm/nospec-branch.h>
 #include <asm/fixmap.h>
 
-#ifdef CONFIG_PARAVIRT_XXL
-#include <asm/asm-offsets.h>
-#include <asm/paravirt.h>
-#define GET_CR2_INTO(reg) GET_CR2_INTO_AX ; _ASM_MOV %_ASM_AX, reg
-#else
-#define INTERRUPT_RETURN iretq
-#define GET_CR2_INTO(reg) _ASM_MOV %cr2, reg
-#endif
-
 /*
  * We are not able to switch in one step to the final KERNEL ADDRESS SPACE
  * because we need identity-mapped pages.
@@ -71,7 +62,7 @@ SYM_CODE_START_NOALIGN(startup_64)
 	 */
 
 	/* Set up the stack for verify_cpu(), similar to initial_stack below */
-	leaq	(__end_init_task - SIZEOF_PTREGS)(%rip), %rsp
+	leaq	(__end_init_task - FRAME_SIZE)(%rip), %rsp
 
 	leaq	_text(%rip), %rdi
 	pushq	%rsi
@@ -321,6 +312,8 @@ SYM_CODE_END(start_cpu0)
 SYM_CODE_START_NOALIGN(vc_boot_ghcb)
 	UNWIND_HINT_IRET_REGS offset=8
 
+	ANNOTATE_UNRET_END
+
 	/* Build pt_regs */
 	PUSH_AND_CLEAR_REGS
 
@@ -352,10 +345,10 @@ SYM_DATA(initial_vc_handler,	.quad handle_vc_boot_ghcb)
 #endif
 
 /*
- * The SIZEOF_PTREGS gap is a convention which helps the in-kernel unwinder
+ * The FRAME_SIZE gap is a convention which helps the in-kernel unwinder
  * reliably detect the end of the stack.
  */
-SYM_DATA(initial_stack, .quad init_thread_union + THREAD_SIZE - SIZEOF_PTREGS)
+SYM_DATA(initial_stack, .quad init_thread_union + THREAD_SIZE - FRAME_SIZE)
 	__FINITDATA
 
 	__INIT
@@ -378,6 +371,7 @@ SYM_CODE_START(early_idt_handler_array)
 SYM_CODE_END(early_idt_handler_array)
 
 SYM_CODE_START_LOCAL(early_idt_handler_common)
+	ANNOTATE_UNRET_END
 	/*
 	 * The stack is the hardware frame, an error code or zero, and the
 	 * vector number.
@@ -423,6 +417,8 @@ SYM_CODE_END(early_idt_handler_common)
  */
 SYM_CODE_START_NOALIGN(vc_no_ghcb)
 	UNWIND_HINT_IRET_REGS offset=8
+
+	ANNOTATE_UNRET_END
 
 	/* Build pt_regs */
 	PUSH_AND_CLEAR_REGS
@@ -540,21 +536,19 @@ SYM_DATA_END(level3_kernel_pgt)
 
 SYM_DATA_START_PAGE_ALIGNED(level2_kernel_pgt)
 	/*
-	 * 512 MB kernel mapping. We spend a full page on this pagetable
-	 * anyway.
+	 * Kernel high mapping.
 	 *
-	 * The kernel code+data+bss must not be bigger than that.
+	 * The kernel code+data+bss must be located below KERNEL_IMAGE_SIZE in
+	 * virtual address space, which is 1 GiB if RANDOMIZE_BASE is enabled,
+	 * 512 MiB otherwise.
 	 *
-	 * (NOTE: at +512MB starts the module area, see MODULES_VADDR.
-	 *  If you want to increase this then increase MODULES_VADDR
-	 *  too.)
+	 * (NOTE: after that starts the module area, see MODULES_VADDR.)
 	 *
-	 *  This table is eventually used by the kernel during normal
-	 *  runtime.  Care must be taken to clear out undesired bits
-	 *  later, like _PAGE_RW or _PAGE_GLOBAL in some cases.
+	 * This table is eventually used by the kernel during normal runtime.
+	 * Care must be taken to clear out undesired bits later, like _PAGE_RW
+	 * or _PAGE_GLOBAL in some cases.
 	 */
-	PMDS(0, __PAGE_KERNEL_LARGE_EXEC,
-		KERNEL_IMAGE_SIZE/PMD_SIZE)
+	PMDS(0, __PAGE_KERNEL_LARGE_EXEC, KERNEL_IMAGE_SIZE/PMD_SIZE)
 SYM_DATA_END(level2_kernel_pgt)
 
 SYM_DATA_START_PAGE_ALIGNED(level2_fixmap_pgt)

@@ -8,7 +8,7 @@
 // Based on version from Arnaud Patard <arnaud.patard@rtp-net.org>
 
 #include <linux/types.h>
-#include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
 #include <linux/module.h>
 
 #include <sound/soc.h>
@@ -112,7 +112,7 @@ static int h1940_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static struct snd_soc_ops h1940_ops = {
+static const struct snd_soc_ops h1940_ops = {
 	.startup	= h1940_startup,
 	.hw_params	= h1940_hw_params,
 };

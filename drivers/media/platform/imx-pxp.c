@@ -1654,15 +1654,14 @@ static int pxp_probe(struct platform_device *pdev)
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	dev->mmio = devm_ioremap_resource(&pdev->dev, res);
-	if (IS_ERR(dev->mmio)) {
-		ret = PTR_ERR(dev->mmio);
-		dev_err(&pdev->dev, "Failed to map register space: %d\n", ret);
-		return ret;
-	}
+	if (IS_ERR(dev->mmio))
+		return PTR_ERR(dev->mmio);
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;
+
+	spin_lock_init(&dev->irqlock);
 
 	ret = devm_request_threaded_irq(&pdev->dev, irq, NULL, pxp_irq_handler,
 			IRQF_ONESHOT, dev_name(&pdev->dev), dev);
@@ -1680,8 +1679,6 @@ static int pxp_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "PXP reset timeout: %d\n", ret);
 		goto err_clk;
 	}
-
-	spin_lock_init(&dev->irqlock);
 
 	ret = v4l2_device_register(&pdev->dev, &dev->v4l2_dev);
 	if (ret)
@@ -1755,7 +1752,7 @@ static struct platform_driver pxp_driver = {
 	.remove		= pxp_remove,
 	.driver		= {
 		.name	= MEM2MEM_NAME,
-		.of_match_table = of_match_ptr(pxp_dt_ids),
+		.of_match_table = pxp_dt_ids,
 	},
 };
 

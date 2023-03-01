@@ -25,6 +25,8 @@
 #include <linux/usb/usbnet.h>
 #include <linux/slab.h>
 #include <linux/if_vlan.h>
+#include <linux/phy.h>
+#include <net/selftests.h>
 
 #define DRIVER_VERSION "22-Dec-2011"
 #define DRIVER_NAME "asix"
@@ -124,8 +126,7 @@
 	 AX_MEDIUM_RE)
 
 #define AX88772_MEDIUM_DEFAULT	\
-	(AX_MEDIUM_FD | AX_MEDIUM_RFC | \
-	 AX_MEDIUM_TFC | AX_MEDIUM_PS | \
+	(AX_MEDIUM_FD | AX_MEDIUM_PS | \
 	 AX_MEDIUM_AC | AX_MEDIUM_RE)
 
 /* AX88772 & AX88178 RX_CTL values */
@@ -178,6 +179,11 @@ struct asix_common_private {
 	u16 presvd_phy_advertise;
 	u16 presvd_phy_bmcr;
 	struct asix_rx_fixup_info rx_fixup_info;
+	struct mii_bus *mdio;
+	struct phy_device *phydev;
+	u16 phy_addr;
+	char phy_name[20];
+	bool embd_phy;
 };
 
 extern const struct driver_info ax88172a_info;
@@ -185,8 +191,8 @@ extern const struct driver_info ax88172a_info;
 /* ASIX specific flags */
 #define FLAG_EEPROM_MAC		(1UL << 0)  /* init device MAC from eeprom */
 
-int asix_read_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
-		  u16 size, void *data, int in_pm);
+int __must_check asix_read_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
+			       u16 size, void *data, int in_pm);
 
 int asix_write_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
 		   u16 size, void *data, int in_pm);
@@ -205,8 +211,7 @@ struct sk_buff *asix_tx_fixup(struct usbnet *dev, struct sk_buff *skb,
 int asix_set_sw_mii(struct usbnet *dev, int in_pm);
 int asix_set_hw_mii(struct usbnet *dev, int in_pm);
 
-int asix_read_phy_addr(struct usbnet *dev, int internal);
-int asix_get_phy_addr(struct usbnet *dev);
+int asix_read_phy_addr(struct usbnet *dev, bool internal);
 
 int asix_sw_reset(struct usbnet *dev, u8 flags, int in_pm);
 
@@ -215,6 +220,7 @@ int asix_write_rx_ctl(struct usbnet *dev, u16 mode, int in_pm);
 
 u16 asix_read_medium_status(struct usbnet *dev, int in_pm);
 int asix_write_medium_mode(struct usbnet *dev, u16 mode, int in_pm);
+void asix_adjust_link(struct net_device *netdev);
 
 int asix_write_gpio(struct usbnet *dev, u16 value, int sleep, int in_pm);
 
@@ -222,6 +228,9 @@ void asix_set_multicast(struct net_device *net);
 
 int asix_mdio_read(struct net_device *netdev, int phy_id, int loc);
 void asix_mdio_write(struct net_device *netdev, int phy_id, int loc, int val);
+
+int asix_mdio_bus_read(struct mii_bus *bus, int phy_id, int regnum);
+int asix_mdio_bus_write(struct mii_bus *bus, int phy_id, int regnum, u16 val);
 
 int asix_mdio_read_nopm(struct net_device *netdev, int phy_id, int loc);
 void asix_mdio_write_nopm(struct net_device *netdev, int phy_id, int loc,

@@ -180,7 +180,7 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
 			 * Oh well... nobody has a sufficient solution to this
 			 * protocol bug yet.
 			 */
-			if (twsk_net(tw)->ipv4.sysctl_tcp_rfc1337 == 0) {
+			if (!READ_ONCE(twsk_net(tw)->ipv4.sysctl_tcp_rfc1337)) {
 kill:
 				inet_twsk_deschedule_put(tw);
 				return TCP_TW_SUCCESS;
@@ -496,29 +496,24 @@ u8 tcp_accecn_option_init(const struct sk_buff *skb, u8 opt_offset)
 {
 	unsigned char *ptr = skb_transport_header(skb) + opt_offset;
 	unsigned int optlen = ptr[1] - 2;
-	bool order;
 
-	WARN_ON_ONCE(ptr[0] != TCPOPT_EXP);
-	ptr += 2;
-	order = get_unaligned_be16(ptr) == TCPOPT_ACCECN1_MAGIC;
+	WARN_ON_ONCE(ptr[0] != TCPOPT_ACCECN0 && ptr[0] != TCPOPT_ACCECN1);
 	ptr += 2;
 
-	if (optlen >= TCPOLEN_ACCECN_PERCOUNTER) {
-		if (order) {
-			if (optlen < TCPOLEN_ACCECN_PERCOUNTER * 3)
-				return TCP_ACCECN_OPT_COUNTER_SEEN;
-			ptr += TCPOLEN_ACCECN_PERCOUNTER * 2;
-		}
-		/* Detect option zeroing. Check the e0b counter value,
-		 * if present, it must be != 0.
-		 */
-		if (!(get_unaligned_be32(ptr - 1) & 0xFFFFFFU))
-			return TCP_ACCECN_OPT_FAIL;
-
+	/* Detect option zeroing: an AccECN connection "MAY check that the
+	 * initial value of the EE0B field or the EE1B field is non-zero"
+	 */
+	if (optlen < TCPOLEN_ACCECN_PERFIELD)
+		return TCP_ACCECN_OPT_EMPTY_SEEN;
+	if (get_unaligned_be24(ptr) == 0)
+		return TCP_ACCECN_OPT_FAIL;
+	if (optlen < TCPOLEN_ACCECN_PERFIELD * 3)
 		return TCP_ACCECN_OPT_COUNTER_SEEN;
-	}
+	ptr += TCPOLEN_ACCECN_PERFIELD * 2;
+	if (get_unaligned_be24(ptr) == 0)
+		return TCP_ACCECN_OPT_FAIL;
 
-	return TCP_ACCECN_OPT_EMPTY_SEEN;
+	return TCP_ACCECN_OPT_COUNTER_SEEN;
 }
 
 /* This is not only more efficient than what we used to do, it eliminates
@@ -612,7 +607,7 @@ struct sock *tcp_create_openreq_child(const struct sock *sk,
 	newtp->tsoffset = treq->ts_off;
 #ifdef CONFIG_TCP_MD5SIG
 	newtp->md5sig_info = NULL;	/*XXX*/
-	if (newtp->af_specific->md5_lookup(sk, newsk))
+	if (treq->af_specific->req_md5_lookup(sk, req_to_sk(req)))
 		newtp->tcp_header_len += TCPOLEN_MD5SIG_ALIGNED;
 #endif
 	if (skb->len >= TCP_MSS_DEFAULT + newtp->tcp_header_len)
@@ -854,8 +849,8 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 		goto listen_overflow;
 
 	if (own_req && rsk_drop_req(req)) {
-		reqsk_queue_removed(&inet_csk(sk)->icsk_accept_queue, req);
-		inet_csk_reqsk_queue_drop_and_put(sk, req);
+		reqsk_queue_removed(&inet_csk(req->rsk_listener)->icsk_accept_queue, req);
+		inet_csk_reqsk_queue_drop_and_put(req->rsk_listener, req);
 		return child;
 	}
 
@@ -865,7 +860,10 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 	return inet_csk_complete_hashdance(sk, child, req, own_req);
 
 listen_overflow:
-	if (!sock_net(sk)->ipv4.sysctl_tcp_abort_on_overflow) {
+	if (sk != req->rsk_listener)
+		__NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPMIGRATEREQFAILURE);
+
+	if (!READ_ONCE(sock_net(sk)->ipv4.sysctl_tcp_abort_on_overflow)) {
 		inet_rsk(req)->acked = 1;
 		return NULL;
 	}
@@ -880,7 +878,7 @@ embryonic_reset:
 		req->rsk_ops->send_reset(sk, skb);
 	} else if (fastopen) { /* received a valid RST pkt */
 		reqsk_fastopen_remove(sk, req, true);
-		tcp_reset(sk);
+		tcp_reset(sk, skb);
 	}
 	if (!fastopen) {
 		bool unlinked = inet_csk_reqsk_queue_drop(sk, req);

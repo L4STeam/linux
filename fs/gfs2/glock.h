@@ -75,6 +75,11 @@ enum {
  * request and directly join the other shared lock.  A shared lock request
  * without the priority flag might be forced to wait until the deferred
  * requested had acquired and released the lock.
+ *
+ * LM_FLAG_NODE_SCOPE
+ * This holder agrees to share the lock within this node. In other words,
+ * the glock is held in EX mode according to DLM, but local holders on the
+ * same node can share it.
  */
 
 #define LM_FLAG_TRY		0x0001
@@ -82,6 +87,7 @@ enum {
 #define LM_FLAG_NOEXP		0x0004
 #define LM_FLAG_ANY		0x0008
 #define LM_FLAG_PRIORITY	0x0010
+#define LM_FLAG_NODE_SCOPE	0x0020
 #define GL_ASYNC		0x0040
 #define GL_EXACT		0x0080
 #define GL_SKIP			0x0100
@@ -144,6 +150,8 @@ static inline struct gfs2_holder *gfs2_glock_is_locked_by_me(struct gfs2_glock *
 	list_for_each_entry(gh, &gl->gl_holders, gh_list) {
 		if (!test_bit(HIF_HOLDER, &gh->gh_iflags))
 			break;
+		if (test_bit(HIF_MAY_DEMOTE, &gh->gh_iflags))
+			continue;
 		if (gh->gh_owner_pid == pid)
 			goto out;
 	}
@@ -316,6 +324,24 @@ static inline void glock_clear_object(struct gfs2_glock *gl, void *object)
 	spin_lock(&gl->gl_lockref.lock);
 	if (gl->gl_object == object)
 		gl->gl_object = NULL;
+	spin_unlock(&gl->gl_lockref.lock);
+}
+
+static inline void gfs2_holder_allow_demote(struct gfs2_holder *gh)
+{
+	struct gfs2_glock *gl = gh->gh_gl;
+
+	spin_lock(&gl->gl_lockref.lock);
+	set_bit(HIF_MAY_DEMOTE, &gh->gh_iflags);
+	spin_unlock(&gl->gl_lockref.lock);
+}
+
+static inline void gfs2_holder_disallow_demote(struct gfs2_holder *gh)
+{
+	struct gfs2_glock *gl = gh->gh_gl;
+
+	spin_lock(&gl->gl_lockref.lock);
+	clear_bit(HIF_MAY_DEMOTE, &gh->gh_iflags);
 	spin_unlock(&gl->gl_lockref.lock);
 }
 

@@ -28,6 +28,8 @@
 #include <drm/drm_atomic_state_helper.h>
 #include <drm/drm_bridge.h>
 #include <drm/drm_encoder.h>
+#include <drm/drm_of.h>
+#include <drm/drm_print.h>
 
 #include "drm_crtc_internal.h"
 
@@ -50,10 +52,8 @@
  *
  * Display drivers are responsible for linking encoders with the first bridge
  * in the chains. This is done by acquiring the appropriate bridge with
- * of_drm_find_bridge() or drm_of_find_panel_or_bridge(), or creating it for a
- * panel with drm_panel_bridge_add_typed() (or the managed version
- * devm_drm_panel_bridge_add_typed()). Once acquired, the bridge shall be
- * attached to the encoder with a call to drm_bridge_attach().
+ * devm_drm_of_get_bridge(). Once acquired, the bridge shall be attached to the
+ * encoder with a call to drm_bridge_attach().
  *
  * Bridges are responsible for linking themselves with the next bridge in the
  * chain, if any. This is done the same way as for encoders, with the call to
@@ -225,6 +225,15 @@ err_reset_bridge:
 	bridge->dev = NULL;
 	bridge->encoder = NULL;
 	list_del(&bridge->chain_node);
+
+#ifdef CONFIG_OF
+	DRM_ERROR("failed to attach bridge %pOF to encoder %s: %d\n",
+		  bridge->of_node, encoder->name, ret);
+#else
+	DRM_ERROR("failed to attach bridge to encoder %s: %d\n",
+		  encoder->name, ret);
+#endif
+
 	return ret;
 }
 EXPORT_SYMBOL(drm_bridge_attach);
@@ -522,6 +531,9 @@ void drm_bridge_chain_pre_enable(struct drm_bridge *bridge)
 	list_for_each_entry_reverse(iter, &encoder->bridge_chain, chain_node) {
 		if (iter->funcs->pre_enable)
 			iter->funcs->pre_enable(iter);
+
+		if (iter == bridge)
+			break;
 	}
 }
 EXPORT_SYMBOL(drm_bridge_chain_pre_enable);
@@ -969,7 +981,7 @@ drm_atomic_bridge_propagate_bus_flags(struct drm_bridge *bridge,
 	bridge_state->output_bus_cfg.flags = output_flags;
 
 	/*
-	 * Propage the output flags to the input end of the bridge. Again, it's
+	 * Propagate the output flags to the input end of the bridge. Again, it's
 	 * not necessarily what all bridges want, but that's what most of them
 	 * do, and by doing that by default we avoid forcing drivers to
 	 * duplicate the "dummy propagation" logic.

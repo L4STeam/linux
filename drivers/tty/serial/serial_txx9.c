@@ -24,7 +24,7 @@
 #include <linux/tty.h>
 #include <linux/tty_flip.h>
 
-#include <asm/io.h>
+#include <linux/io.h>
 
 static char *serial_version = "1.11";
 static char *serial_name = "TX39/49 Serial driver";
@@ -330,9 +330,9 @@ receive_chars(struct uart_txx9_port *up, unsigned int *status)
 		up->port.ignore_status_mask = next_ignore_status_mask;
 		disr = sio_in(up, TXX9_SIDISR);
 	} while (!(disr & TXX9_SIDISR_UVALID) && (max_count-- > 0));
-	spin_unlock(&up->port.lock);
+
 	tty_flip_buffer_push(&up->port.state->port);
-	spin_lock(&up->port.lock);
+
 	*status = disr;
 }
 
@@ -644,6 +644,8 @@ serial_txx9_set_termios(struct uart_port *port, struct ktermios *termios,
 	case CS6:	/* not supported */
 	case CS8:
 		cval |= TXX9_SILCR_UMODE_8BIT;
+		termios->c_cflag &= ~CSIZE;
+		termios->c_cflag |= CS8;
 		break;
 	}
 

@@ -294,7 +294,7 @@ static int msg_to_mgmt_sync(struct hinic_pf_to_mgmt *pf_to_mgmt,
 		goto unlock_sync_msg;
 	}
 
-	if ((buf_out) && (recv_msg->msg_len <= MAX_PF_MGMT_BUF_SIZE)) {
+	if (buf_out && recv_msg->msg_len <= MAX_PF_MGMT_BUF_SIZE) {
 		memcpy(buf_out, recv_msg->msg, recv_msg->msg_len);
 		*out_size = recv_msg->msg_len;
 	}
@@ -411,7 +411,7 @@ static void recv_mgmt_msg_work_handler(struct work_struct *work)
 			   HINIC_MGMT_CB_ENABLED,
 			   HINIC_MGMT_CB_ENABLED | HINIC_MGMT_CB_RUNNING);
 
-	if ((cb_state == HINIC_MGMT_CB_ENABLED) && (mgmt_cb->cb))
+	if (cb_state == HINIC_MGMT_CB_ENABLED && mgmt_cb->cb)
 		mgmt_cb->cb(mgmt_cb->handle, mgmt_work->cmd,
 			    mgmt_work->msg, mgmt_work->msg_len,
 			    buf_out, &out_size);
@@ -440,18 +440,14 @@ static void mgmt_recv_msg_handler(struct hinic_pf_to_mgmt *pf_to_mgmt,
 				  struct hinic_recv_msg *recv_msg)
 {
 	struct hinic_mgmt_msg_handle_work *mgmt_work = NULL;
-	struct pci_dev *pdev = pf_to_mgmt->hwif->pdev;
 
 	mgmt_work = kzalloc(sizeof(*mgmt_work), GFP_KERNEL);
-	if (!mgmt_work) {
-		dev_err(&pdev->dev, "Allocate mgmt work memory failed\n");
+	if (!mgmt_work)
 		return;
-	}
 
 	if (recv_msg->msg_len) {
 		mgmt_work->msg = kzalloc(recv_msg->msg_len, GFP_KERNEL);
 		if (!mgmt_work->msg) {
-			dev_err(&pdev->dev, "Allocate mgmt msg memory failed\n");
 			kfree(mgmt_work);
 			return;
 		}
@@ -647,6 +643,7 @@ int hinic_pf_to_mgmt_init(struct hinic_pf_to_mgmt *pf_to_mgmt,
 	err = alloc_msg_buf(pf_to_mgmt);
 	if (err) {
 		dev_err(&pdev->dev, "Failed to allocate msg buffers\n");
+		destroy_workqueue(pf_to_mgmt->workq);
 		hinic_health_reporters_destroy(hwdev->devlink_dev);
 		return err;
 	}
@@ -654,6 +651,7 @@ int hinic_pf_to_mgmt_init(struct hinic_pf_to_mgmt *pf_to_mgmt,
 	err = hinic_api_cmd_init(pf_to_mgmt->cmd_chain, hwif);
 	if (err) {
 		dev_err(&pdev->dev, "Failed to initialize cmd chains\n");
+		destroy_workqueue(pf_to_mgmt->workq);
 		hinic_health_reporters_destroy(hwdev->devlink_dev);
 		return err;
 	}

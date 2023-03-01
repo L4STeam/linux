@@ -111,7 +111,7 @@ reread:		left = ca->sb.bucket_size - offset;
 			 * Check from the oldest jset for last_seq. If
 			 * i->j.seq < j->last_seq, it means the oldest jset
 			 * in list is expired and useless, remove it from
-			 * this list. Otherwise, j is a condidate jset for
+			 * this list. Otherwise, j is a candidate jset for
 			 * further following checks.
 			 */
 			while (!list_empty(list)) {
@@ -407,6 +407,11 @@ err:
 	return ret;
 }
 
+void bch_journal_space_reserve(struct journal *j)
+{
+	j->do_reserve = true;
+}
+
 /* Journalling */
 
 static void btree_flush_write(struct cache_set *c)
@@ -498,7 +503,7 @@ static void btree_flush_write(struct cache_set *c)
 		 * - If there are matched nodes recorded in btree_nodes[],
 		 *   they are clean now (this is why and how the oldest
 		 *   journal entry can be reclaimed). These selected nodes
-		 *   will be ignored and skipped in the folowing for-loop.
+		 *   will be ignored and skipped in the following for-loop.
 		 */
 		if (((btree_current_write(b)->journal - fifo_front_p) &
 		     mask) != 0) {
@@ -625,12 +630,30 @@ static void do_journal_discard(struct cache *ca)
 	}
 }
 
+static unsigned int free_journal_buckets(struct cache_set *c)
+{
+	struct journal *j = &c->journal;
+	struct cache *ca = c->cache;
+	struct journal_device *ja = &c->cache->journal;
+	unsigned int n;
+
+	/* In case njournal_buckets is not power of 2 */
+	if (ja->cur_idx >= ja->discard_idx)
+		n = ca->sb.njournal_buckets +  ja->discard_idx - ja->cur_idx;
+	else
+		n = ja->discard_idx - ja->cur_idx;
+
+	if (n > (1 + j->do_reserve))
+		return n - (1 + j->do_reserve);
+
+	return 0;
+}
+
 static void journal_reclaim(struct cache_set *c)
 {
 	struct bkey *k = &c->journal.key;
 	struct cache *ca = c->cache;
 	uint64_t last_seq;
-	unsigned int next;
 	struct journal_device *ja = &ca->journal;
 	atomic_t p __maybe_unused;
 
@@ -653,12 +676,10 @@ static void journal_reclaim(struct cache_set *c)
 	if (c->journal.blocks_free)
 		goto out;
 
-	next = (ja->cur_idx + 1) % ca->sb.njournal_buckets;
-	/* No space available on this device */
-	if (next == ja->discard_idx)
+	if (!free_journal_buckets(c))
 		goto out;
 
-	ja->cur_idx = next;
+	ja->cur_idx = (ja->cur_idx + 1) % ca->sb.njournal_buckets;
 	k->ptr[0] = MAKE_PTR(0,
 			     bucket_to_sector(c, ca->sb.d[ja->cur_idx]),
 			     ca->sb.nr_this_dev);
@@ -768,7 +789,7 @@ static void journal_write_unlocked(struct closure *cl)
 	w->data->csum		= csum_set(w->data);
 
 	for (i = 0; i < KEY_PTRS(k); i++) {
-		ca = PTR_CACHE(c, k, i);
+		ca = c->cache;
 		bio = &ca->journal.bio;
 
 		atomic_long_add(sectors, &ca->meta_sectors_written);

@@ -18,7 +18,6 @@
 #include <linux/iommu.h>
 #include <linux/clk.h>
 #include <linux/err.h>
-#include <linux/of_iommu.h>
 
 #include <asm/cacheflush.h>
 #include <linux/sizes.h>
@@ -174,12 +173,6 @@ static void __flush_iotlb_walk(unsigned long iova, size_t size,
 	__flush_iotlb_range(iova, size, granule, false, cookie);
 }
 
-static void __flush_iotlb_leaf(unsigned long iova, size_t size,
-			       size_t granule, void *cookie)
-{
-	__flush_iotlb_range(iova, size, granule, true, cookie);
-}
-
 static void __flush_iotlb_page(struct iommu_iotlb_gather *gather,
 			       unsigned long iova, size_t granule, void *cookie)
 {
@@ -189,7 +182,6 @@ static void __flush_iotlb_page(struct iommu_iotlb_gather *gather,
 static const struct iommu_flush_ops msm_iommu_flush_ops = {
 	.tlb_flush_all = __flush_iotlb,
 	.tlb_flush_walk = __flush_iotlb_walk,
-	.tlb_flush_leaf = __flush_iotlb_leaf,
 	.tlb_add_page = __flush_iotlb_page,
 };
 
@@ -350,7 +342,6 @@ static int msm_iommu_domain_config(struct msm_priv *priv)
 	spin_lock_init(&priv->pgtlock);
 
 	priv->cfg = (struct io_pgtable_cfg) {
-		.quirks = IO_PGTABLE_QUIRK_TLBI_ON_MAP,
 		.pgsize_bitmap = msm_iommu_ops.pgsize_bitmap,
 		.ias = 32,
 		.oas = 32,
@@ -497,6 +488,14 @@ static int msm_iommu_map(struct iommu_domain *domain, unsigned long iova,
 	return ret;
 }
 
+static void msm_iommu_sync_map(struct iommu_domain *domain, unsigned long iova,
+			       size_t size)
+{
+	struct msm_priv *priv = to_msm_priv(domain);
+
+	__flush_iotlb_range(iova, size, SZ_4K, false, priv);
+}
+
 static size_t msm_iommu_unmap(struct iommu_domain *domain, unsigned long iova,
 			      size_t len, struct iommu_iotlb_gather *gather)
 {
@@ -616,16 +615,19 @@ static void insert_iommu_master(struct device *dev,
 static int qcom_iommu_of_xlate(struct device *dev,
 			       struct of_phandle_args *spec)
 {
-	struct msm_iommu_dev *iommu;
+	struct msm_iommu_dev *iommu = NULL, *iter;
 	unsigned long flags;
 	int ret = 0;
 
 	spin_lock_irqsave(&msm_iommu_lock, flags);
-	list_for_each_entry(iommu, &qcom_iommu_devices, dev_node)
-		if (iommu->dev->of_node == spec->np)
+	list_for_each_entry(iter, &qcom_iommu_devices, dev_node) {
+		if (iter->dev->of_node == spec->np) {
+			iommu = iter;
 			break;
+		}
+	}
 
-	if (!iommu || iommu->dev->of_node != spec->np) {
+	if (!iommu) {
 		ret = -ENODEV;
 		goto fail;
 	}
@@ -687,6 +689,7 @@ static struct iommu_ops msm_iommu_ops = {
 	 * kick starting the other master.
 	 */
 	.iotlb_sync = NULL,
+	.iotlb_sync_map = msm_iommu_sync_map,
 	.iova_to_phys = msm_iommu_iova_to_phys,
 	.probe_device = msm_iommu_probe_device,
 	.release_device = msm_iommu_release_device,
@@ -791,10 +794,7 @@ static int msm_iommu_probe(struct platform_device *pdev)
 		goto fail;
 	}
 
-	iommu_device_set_ops(&iommu->iommu, &msm_iommu_ops);
-	iommu_device_set_fwnode(&iommu->iommu, &pdev->dev.of_node->fwnode);
-
-	ret = iommu_device_register(&iommu->iommu);
+	ret = iommu_device_register(&iommu->iommu, &msm_iommu_ops, &pdev->dev);
 	if (ret) {
 		pr_err("Could not register msm-smmu at %pa\n", &ioaddr);
 		goto fail;

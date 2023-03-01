@@ -83,11 +83,11 @@ static struct r8a779a0_sysc_area r8a779a0_areas[] __initdata = {
 	{ "a2cv6",	R8A779A0_PD_A2CV6, R8A779A0_PD_A3IR },
 	{ "a2cn2",	R8A779A0_PD_A2CN2, R8A779A0_PD_A3IR },
 	{ "a2imp23",	R8A779A0_PD_A2IMP23, R8A779A0_PD_A3IR },
-	{ "a2dp1",	R8A779A0_PD_A2DP0, R8A779A0_PD_A3IR },
-	{ "a2cv2",	R8A779A0_PD_A2CV0, R8A779A0_PD_A3IR },
-	{ "a2cv3",	R8A779A0_PD_A2CV1, R8A779A0_PD_A3IR },
-	{ "a2cv5",	R8A779A0_PD_A2CV4, R8A779A0_PD_A3IR },
-	{ "a2cv7",	R8A779A0_PD_A2CV6, R8A779A0_PD_A3IR },
+	{ "a2dp1",	R8A779A0_PD_A2DP1, R8A779A0_PD_A3IR },
+	{ "a2cv2",	R8A779A0_PD_A2CV2, R8A779A0_PD_A3IR },
+	{ "a2cv3",	R8A779A0_PD_A2CV3, R8A779A0_PD_A3IR },
+	{ "a2cv5",	R8A779A0_PD_A2CV5, R8A779A0_PD_A3IR },
+	{ "a2cv7",	R8A779A0_PD_A2CV7, R8A779A0_PD_A3IR },
 	{ "a2cn1",	R8A779A0_PD_A2CN1, R8A779A0_PD_A3IR },
 	{ "a1cnn0",	R8A779A0_PD_A1CNN0, R8A779A0_PD_A2CN0 },
 	{ "a1cnn2",	R8A779A0_PD_A1CNN2, R8A779A0_PD_A2CN2 },
@@ -404,19 +404,21 @@ static int __init r8a779a0_sysc_pd_init(void)
 	for (i = 0; i < info->num_areas; i++) {
 		const struct r8a779a0_sysc_area *area = &info->areas[i];
 		struct r8a779a0_sysc_pd *pd;
+		size_t n;
 
 		if (!area->name) {
 			/* Skip NULLified area */
 			continue;
 		}
 
-		pd = kzalloc(sizeof(*pd) + strlen(area->name) + 1, GFP_KERNEL);
+		n = strlen(area->name) + 1;
+		pd = kzalloc(sizeof(*pd) + n, GFP_KERNEL);
 		if (!pd) {
 			error = -ENOMEM;
 			goto out_put;
 		}
 
-		strcpy(pd->name, area->name);
+		memcpy(pd->name, area->name, n);
 		pd->genpd.name = pd->name;
 		pd->pdr = area->pdr;
 		pd->flags = area->flags;

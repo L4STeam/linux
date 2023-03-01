@@ -127,7 +127,6 @@ struct lpc32xx_udc {
 	struct usb_gadget_driver *driver;
 	struct platform_device	*pdev;
 	struct device		*dev;
-	struct dentry		*pde;
 	spinlock_t		lock;
 	struct i2c_client	*isp1301_i2c_client;
 
@@ -528,12 +527,12 @@ DEFINE_SHOW_ATTRIBUTE(udc);
 
 static void create_debug_file(struct lpc32xx_udc *udc)
 {
-	udc->pde = debugfs_create_file(debug_filename, 0, NULL, udc, &udc_fops);
+	debugfs_create_file(debug_filename, 0, NULL, udc, &udc_fops);
 }
 
 static void remove_debug_file(struct lpc32xx_udc *udc)
 {
-	debugfs_remove(udc->pde);
+	debugfs_remove(debugfs_lookup(debug_filename, NULL));
 }
 
 #else
@@ -3015,6 +3014,7 @@ static int lpc32xx_udc_probe(struct platform_device *pdev)
 	}
 
 	udc->isp1301_i2c_client = isp1301_get_client(isp1301_node);
+	of_node_put(isp1301_node);
 	if (!udc->isp1301_i2c_client) {
 		return -EPROBE_DEFER;
 	}

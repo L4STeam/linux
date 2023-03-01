@@ -389,6 +389,7 @@ static int ak8975_power_on(const struct ak8975_data *data)
 	if (ret) {
 		dev_warn(&data->client->dev,
 			 "Failed to enable specified Vid supply\n");
+		regulator_disable(data->vdd);
 		return ret;
 	}
 
@@ -890,7 +891,7 @@ static int ak8975_probe(struct i2c_client *client,
 	data->reset_gpiod = reset_gpiod;
 	data->eoc_irq = 0;
 
-	err = iio_read_mount_matrix(&client->dev, "mount-matrix", &data->orientation);
+	err = iio_read_mount_matrix(&client->dev, &data->orientation);
 	if (err)
 		return err;
 

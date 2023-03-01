@@ -742,7 +742,7 @@ class DebugfsProvider(Provider):
         The fields are all available KVM debugfs files
 
         """
-        exempt_list = ['halt_poll_fail_ns', 'halt_poll_success_ns']
+        exempt_list = ['halt_poll_fail_ns', 'halt_poll_success_ns', 'halt_wait_ns']
         fields = [field for field in self.walkdir(PATH_DEBUGFS_KVM)[2]
                   if field not in exempt_list]
 
@@ -1646,7 +1646,8 @@ Press any other key to refresh statistics immediately.
                          .format(values))
             if len(pids) > 1:
                 sys.exit('Error: Multiple processes found (pids: {}). Use "-p"'
-                         ' to specify the desired pid'.format(" ".join(pids)))
+                         ' to specify the desired pid'
+                         .format(" ".join(map(str, pids))))
             namespace.pid = pids[0]
 
     argparser = argparse.ArgumentParser(description=description_text,

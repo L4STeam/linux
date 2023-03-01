@@ -50,8 +50,8 @@ The following files belong to it:
   0x00000010        Memory Uncorrectable non-fatal
   0x00000020        Memory Uncorrectable fatal
   0x00000040        PCI Express Correctable
-  0x00000080        PCI Express Uncorrectable fatal
-  0x00000100        PCI Express Uncorrectable non-fatal
+  0x00000080        PCI Express Uncorrectable non-fatal
+  0x00000100        PCI Express Uncorrectable fatal
   0x00000200        Platform Correctable
   0x00000400        Platform Uncorrectable non-fatal
   0x00000800        Platform Uncorrectable fatal
@@ -168,7 +168,7 @@ An error injection example::
   0x00000008	Memory Correctable
   0x00000010	Memory Uncorrectable non-fatal
   # echo 0x12345000 > param1		# Set memory address for injection
-  # echo $((-1 << 12)) > param2		# Mask 0xfffffffffffff000 - anywhere in this page
+  # echo 0xfffffffffffff000 > param2		# Mask - anywhere in this page
   # echo 0x8 > error_type			# Choose correctable memory error
   # echo 1 > error_inject			# Inject now
 

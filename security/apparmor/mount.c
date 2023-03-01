@@ -229,7 +229,8 @@ static const char * const mnt_info_table[] = {
 	"failed srcname match",
 	"failed type match",
 	"failed flags match",
-	"failed data match"
+	"failed data match",
+	"failed perms check"
 };
 
 /*
@@ -284,8 +285,8 @@ static int do_match_mnt(struct aa_dfa *dfa, unsigned int start,
 			return 0;
 	}
 
-	/* failed at end of flags match */
-	return 4;
+	/* failed at perms check, don't confuse with flags match */
+	return 6;
 }
 
 
@@ -370,7 +371,7 @@ audit:
  * Returns: 0 on success else error
  */
 static int match_mnt(struct aa_profile *profile, const struct path *path,
-		     char *buffer, struct path *devpath, char *devbuffer,
+		     char *buffer, const struct path *devpath, char *devbuffer,
 		     const char *type, unsigned long flags, void *data,
 		     bool binary)
 {
@@ -579,7 +580,7 @@ out:
 	return error;
 }
 
-static int profile_umount(struct aa_profile *profile, struct path *path,
+static int profile_umount(struct aa_profile *profile, const struct path *path,
 			  char *buffer)
 {
 	struct aa_perms perms = { };
@@ -718,6 +719,7 @@ int aa_pivotroot(struct aa_label *label, const struct path *old_path,
 			aa_put_label(target);
 			goto out;
 		}
+		aa_put_label(target);
 	} else
 		/* already audited error */
 		error = PTR_ERR(target);

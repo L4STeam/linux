@@ -139,7 +139,9 @@ static int rpcif_spi_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	rpc = spi_controller_get_devdata(ctlr);
-	rpcif_sw_init(rpc, parent);
+	error = rpcif_sw_init(rpc, parent);
+	if (error)
+		return error;
 
 	platform_set_drvdata(pdev, ctlr);
 
@@ -176,15 +178,14 @@ static int rpcif_spi_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
-static int rpcif_spi_suspend(struct device *dev)
+static int __maybe_unused rpcif_spi_suspend(struct device *dev)
 {
 	struct spi_controller *ctlr = dev_get_drvdata(dev);
 
 	return spi_controller_suspend(ctlr);
 }
 
-static int rpcif_spi_resume(struct device *dev)
+static int __maybe_unused rpcif_spi_resume(struct device *dev)
 {
 	struct spi_controller *ctlr = dev_get_drvdata(dev);
 
@@ -192,17 +193,15 @@ static int rpcif_spi_resume(struct device *dev)
 }
 
 static SIMPLE_DEV_PM_OPS(rpcif_spi_pm_ops, rpcif_spi_suspend, rpcif_spi_resume);
-#define DEV_PM_OPS	(&rpcif_spi_pm_ops)
-#else
-#define DEV_PM_OPS	NULL
-#endif
 
 static struct platform_driver rpcif_spi_driver = {
 	.probe	= rpcif_spi_probe,
 	.remove	= rpcif_spi_remove,
 	.driver = {
 		.name	= "rpc-if-spi",
-		.pm	= DEV_PM_OPS,
+#ifdef CONFIG_PM_SLEEP
+		.pm	= &rpcif_spi_pm_ops,
+#endif
 	},
 };
 module_platform_driver(rpcif_spi_driver);

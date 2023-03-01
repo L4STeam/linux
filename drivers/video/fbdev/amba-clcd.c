@@ -35,19 +35,6 @@
 /* This is limited to 16 characters when displayed by X startup */
 static const char *clcd_name = "CLCD FB";
 
-/*
- * Unfortunately, the enable/disable functions may be called either from
- * process or IRQ context, and we _need_ to delay.  This is _not_ good.
- */
-static inline void clcdfb_sleep(unsigned int ms)
-{
-	if (in_atomic()) {
-		mdelay(ms);
-	} else {
-		msleep(ms);
-	}
-}
-
 static inline void clcdfb_set_start(struct clcd_fb *fb)
 {
 	unsigned long ustart = fb->fb.fix.smem_start;
@@ -77,7 +64,7 @@ static void clcdfb_disable(struct clcd_fb *fb)
 		val &= ~CNTL_LCDPWR;
 		writel(val, fb->regs + fb->off_cntl);
 
-		clcdfb_sleep(20);
+		msleep(20);
 	}
 	if (val & CNTL_LCDEN) {
 		val &= ~CNTL_LCDEN;
@@ -109,7 +96,7 @@ static void clcdfb_enable(struct clcd_fb *fb, u32 cntl)
 	cntl |= CNTL_LCDEN;
 	writel(cntl, fb->regs + fb->off_cntl);
 
-	clcdfb_sleep(20);
+	msleep(20);
 
 	/*
 	 * and now apply power.
@@ -711,16 +698,18 @@ static int clcdfb_of_init_display(struct clcd_fb *fb)
 		return -ENODEV;
 
 	panel = of_graph_get_remote_port_parent(endpoint);
-	if (!panel)
-		return -ENODEV;
+	if (!panel) {
+		err = -ENODEV;
+		goto out_endpoint_put;
+	}
 
 	err = clcdfb_of_get_backlight(&fb->dev->dev, fb->panel);
 	if (err)
-		return err;
+		goto out_panel_put;
 
 	err = clcdfb_of_get_mode(&fb->dev->dev, panel, fb->panel);
 	if (err)
-		return err;
+		goto out_panel_put;
 
 	err = of_property_read_u32(fb->dev->dev.of_node, "max-memory-bandwidth",
 			&max_bandwidth);
@@ -749,11 +738,21 @@ static int clcdfb_of_init_display(struct clcd_fb *fb)
 
 	if (of_property_read_u32_array(endpoint,
 			"arm,pl11x,tft-r0g0b0-pads",
-			tft_r0b0g0, ARRAY_SIZE(tft_r0b0g0)) != 0)
-		return -ENOENT;
+			tft_r0b0g0, ARRAY_SIZE(tft_r0b0g0)) != 0) {
+		err = -ENOENT;
+		goto out_panel_put;
+	}
+
+	of_node_put(panel);
+	of_node_put(endpoint);
 
 	return clcdfb_of_init_tft_panel(fb, tft_r0b0g0[0],
 					tft_r0b0g0[1],  tft_r0b0g0[2]);
+out_panel_put:
+	of_node_put(panel);
+out_endpoint_put:
+	of_node_put(endpoint);
+	return err;
 }
 
 static int clcdfb_of_vram_setup(struct clcd_fb *fb)
@@ -771,12 +770,15 @@ static int clcdfb_of_vram_setup(struct clcd_fb *fb)
 		return -ENODEV;
 
 	fb->fb.screen_base = of_iomap(memory, 0);
-	if (!fb->fb.screen_base)
+	if (!fb->fb.screen_base) {
+		of_node_put(memory);
 		return -ENOMEM;
+	}
 
 	fb->fb.fix.smem_start = of_translate_address(memory,
 			of_get_address(memory, 0, &size, NULL));
 	fb->fb.fix.smem_len = size;
+	of_node_put(memory);
 
 	return 0;
 }
@@ -925,7 +927,7 @@ static int clcdfb_probe(struct amba_device *dev, const struct amba_id *id)
 	return ret;
 }
 
-static int clcdfb_remove(struct amba_device *dev)
+static void clcdfb_remove(struct amba_device *dev)
 {
 	struct clcd_fb *fb = amba_get_drvdata(dev);
 
@@ -942,8 +944,6 @@ static int clcdfb_remove(struct amba_device *dev)
 	kfree(fb);
 
 	amba_release_regions(dev);
-
-	return 0;
 }
 
 static const struct amba_id clcdfb_id_table[] = {

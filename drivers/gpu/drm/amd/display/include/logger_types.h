@@ -36,6 +36,9 @@
 #define DC_LOG_DC(...) DRM_DEBUG_KMS(__VA_ARGS__)
 #define DC_LOG_DTN(...) DRM_DEBUG_KMS(__VA_ARGS__)
 #define DC_LOG_SURFACE(...) pr_debug("[SURFACE]:"__VA_ARGS__)
+#define DC_LOG_CURSOR(...) pr_debug("[CURSOR]:"__VA_ARGS__)
+#define DC_LOG_PFLIP(...) pr_debug("[PFLIP]:"__VA_ARGS__)
+#define DC_LOG_VBLANK(...) pr_debug("[VBLANK]:"__VA_ARGS__)
 #define DC_LOG_HW_HOTPLUG(...) DRM_DEBUG_KMS(__VA_ARGS__)
 #define DC_LOG_HW_LINK_TRAINING(...) pr_debug("[HW_LINK_TRAINING]:"__VA_ARGS__)
 #define DC_LOG_HW_SET_MODE(...) DRM_DEBUG_KMS(__VA_ARGS__)
@@ -69,6 +72,9 @@
 #define DC_LOG_DSC(...) DRM_DEBUG_KMS(__VA_ARGS__)
 #define DC_LOG_SMU(...) pr_debug("[SMU_MSG]:"__VA_ARGS__)
 #define DC_LOG_DWB(...) DRM_DEBUG_KMS(__VA_ARGS__)
+#if defined(CONFIG_DRM_AMD_DC_DCN)
+#define DC_LOG_DP2(...) DRM_DEBUG_KMS(__VA_ARGS__)
+#endif
 
 struct dal_logger;
 

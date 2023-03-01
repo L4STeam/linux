@@ -97,17 +97,15 @@ void hinic_txq_get_stats(struct hinic_txq *txq, struct hinic_txq_stats *stats)
 	struct hinic_txq_stats *txq_stats = &txq->txq_stats;
 	unsigned int start;
 
-	u64_stats_update_begin(&stats->syncp);
 	do {
-		start = u64_stats_fetch_begin(&txq_stats->syncp);
+		start = u64_stats_fetch_begin_irq(&txq_stats->syncp);
 		stats->pkts    = txq_stats->pkts;
 		stats->bytes   = txq_stats->bytes;
 		stats->tx_busy = txq_stats->tx_busy;
 		stats->tx_wake = txq_stats->tx_wake;
 		stats->tx_dropped = txq_stats->tx_dropped;
 		stats->big_frags_pkts = txq_stats->big_frags_pkts;
-	} while (u64_stats_fetch_retry(&txq_stats->syncp, start));
-	u64_stats_update_end(&stats->syncp);
+	} while (u64_stats_fetch_retry_irq(&txq_stats->syncp, start));
 }
 
 /**
@@ -377,6 +375,7 @@ static int offload_csum(struct hinic_sq_task *task, u32 *queue_info,
 		} else if (ip.v4->version == 6) {
 			unsigned char *exthdr;
 			__be16 frag_off;
+
 			l3_type = IPV6_PKT;
 			tunnel_type = TUNNEL_UDP_CSUM;
 			exthdr = ip.hdr + sizeof(*ip.v6);
@@ -659,7 +658,7 @@ static void tx_free_skb(struct hinic_dev *nic_dev, struct sk_buff *skb,
 }
 
 /**
- * free_all_rx_skbs - free all skbs in tx queue
+ * free_all_tx_skbs - free all skbs in tx queue
  * @txq: tx queue
  **/
 static void free_all_tx_skbs(struct hinic_txq *txq)
@@ -716,7 +715,7 @@ static int free_tx_poll(struct napi_struct *napi, int budget)
 
 		/* Reading a WQEBB to get real WQE size and consumer index. */
 		sq_wqe = hinic_sq_read_wqebb(sq, &skb, &wqe_size, &sw_ci);
-		if ((!sq_wqe) ||
+		if (!sq_wqe ||
 		    (((hw_ci - sw_ci) & wq->mask) * wq->wqebb_size < wqe_size))
 			break;
 
@@ -861,7 +860,6 @@ int hinic_init_txq(struct hinic_txq *txq, struct hinic_sq *sq,
 	struct hinic_dev *nic_dev = netdev_priv(netdev);
 	struct hinic_hwdev *hwdev = nic_dev->hwdev;
 	int err, irqname_len;
-	size_t sges_size;
 
 	txq->netdev = netdev;
 	txq->sq = sq;
@@ -870,13 +868,13 @@ int hinic_init_txq(struct hinic_txq *txq, struct hinic_sq *sq,
 
 	txq->max_sges = HINIC_MAX_SQ_BUFDESCS;
 
-	sges_size = txq->max_sges * sizeof(*txq->sges);
-	txq->sges = devm_kzalloc(&netdev->dev, sges_size, GFP_KERNEL);
+	txq->sges = devm_kcalloc(&netdev->dev, txq->max_sges,
+				 sizeof(*txq->sges), GFP_KERNEL);
 	if (!txq->sges)
 		return -ENOMEM;
 
-	sges_size = txq->max_sges * sizeof(*txq->free_sges);
-	txq->free_sges = devm_kzalloc(&netdev->dev, sges_size, GFP_KERNEL);
+	txq->free_sges = devm_kcalloc(&netdev->dev, txq->max_sges,
+				      sizeof(*txq->free_sges), GFP_KERNEL);
 	if (!txq->free_sges) {
 		err = -ENOMEM;
 		goto err_alloc_free_sges;

@@ -310,6 +310,7 @@ static void pn532_uart_remove(struct serdev_device *serdev)
 	pn53x_unregister_nfc(pn532->priv);
 	serdev_device_close(serdev);
 	pn53x_common_clean(pn532->priv);
+	del_timer_sync(&pn532->cmd_timeout);
 	kfree_skb(pn532->recv_skb);
 	kfree(pn532);
 }
@@ -319,7 +320,7 @@ static struct serdev_device_driver pn532_uart_driver = {
 	.remove = pn532_uart_remove,
 	.driver = {
 		.name = "pn532_uart",
-		.of_match_table = of_match_ptr(pn532_uart_of_match),
+		.of_match_table = pn532_uart_of_match,
 	},
 };
 

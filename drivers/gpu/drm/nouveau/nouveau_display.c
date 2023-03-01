@@ -286,11 +286,11 @@ nouveau_check_bl_size(struct nouveau_drm *drm, struct nouveau_bo *nvbo,
 
 	bl_size = bw * bh * (1 << tile_mode) * gob_size;
 
-	DRM_DEBUG_KMS("offset=%u stride=%u h=%u tile_mode=0x%02x bw=%u bh=%u gob_size=%u bl_size=%llu size=%lu\n",
+	DRM_DEBUG_KMS("offset=%u stride=%u h=%u tile_mode=0x%02x bw=%u bh=%u gob_size=%u bl_size=%llu size=%zu\n",
 		      offset, stride, h, tile_mode, bw, bh, gob_size, bl_size,
-		      nvbo->bo.mem.size);
+		      nvbo->bo.base.size);
 
-	if (bl_size + offset > nvbo->bo.mem.size)
+	if (bl_size + offset > nvbo->bo.base.size)
 		return -ERANGE;
 
 	return 0;
@@ -322,12 +322,9 @@ nouveau_framebuffer_new(struct drm_device *dev,
 	     mode_cmd->pitches[0] >= 0x10000 || /* at most 64k pitch */
 	     (mode_cmd->pitches[1] && /* pitches for planes must match */
 	      mode_cmd->pitches[0] != mode_cmd->pitches[1]))) {
-		struct drm_format_name_buf format_name;
-		DRM_DEBUG_KMS("Unsuitable framebuffer: format: %s; pitches: 0x%x\n 0x%x\n",
-			      drm_get_format_name(mode_cmd->pixel_format,
-						  &format_name),
-			      mode_cmd->pitches[0],
-			      mode_cmd->pitches[1]);
+		DRM_DEBUG_KMS("Unsuitable framebuffer: format: %p4cc; pitches: 0x%x\n 0x%x\n",
+			      &mode_cmd->pixel_format,
+			      mode_cmd->pitches[0], mode_cmd->pitches[1]);
 		return -EINVAL;
 	}
 
@@ -363,7 +360,7 @@ nouveau_framebuffer_new(struct drm_device *dev,
 		} else {
 			uint32_t size = mode_cmd->pitches[i] * height;
 
-			if (size + mode_cmd->offsets[i] > nvbo->bo.mem.size)
+			if (size + mode_cmd->offsets[i] > nvbo->bo.base.size)
 				return -ERANGE;
 		}
 	}
@@ -521,7 +518,7 @@ nouveau_display_hpd_work(struct work_struct *work)
 
 	pm_runtime_mark_last_busy(drm->dev->dev);
 noop:
-	pm_runtime_put_sync(drm->dev->dev);
+	pm_runtime_put_autosuspend(dev->dev);
 }
 
 #ifdef CONFIG_ACPI
@@ -543,7 +540,7 @@ nouveau_display_acpi_ntfy(struct notifier_block *nb, unsigned long val,
 				 * it's own hotplug events.
 				 */
 				pm_runtime_put_autosuspend(drm->dev->dev);
-			} else if (ret == 0) {
+			} else if (ret == 0 || ret == -EINPROGRESS) {
 				/* We've started resuming the GPU already, so
 				 * it will handle scheduling a full reprobe
 				 * itself
@@ -700,7 +697,6 @@ nouveau_display_create(struct drm_device *dev)
 
 	dev->mode_config.preferred_depth = 24;
 	dev->mode_config.prefer_shadow = 1;
-	dev->mode_config.allow_fb_modifiers = true;
 
 	if (drm->client.device.info.chipset < 0x11)
 		dev->mode_config.async_page_flip = false;
@@ -840,22 +836,4 @@ nouveau_display_dumb_create(struct drm_file *file_priv, struct drm_device *dev,
 	ret = drm_gem_handle_create(file_priv, &bo->bo.base, &args->handle);
 	drm_gem_object_put(&bo->bo.base);
 	return ret;
-}
-
-int
-nouveau_display_dumb_map_offset(struct drm_file *file_priv,
-				struct drm_device *dev,
-				uint32_t handle, uint64_t *poffset)
-{
-	struct drm_gem_object *gem;
-
-	gem = drm_gem_object_lookup(file_priv, handle);
-	if (gem) {
-		struct nouveau_bo *bo = nouveau_gem_object(gem);
-		*poffset = drm_vma_node_offset_addr(&bo->bo.base.vma_node);
-		drm_gem_object_put(gem);
-		return 0;
-	}
-
-	return -ENOENT;
 }

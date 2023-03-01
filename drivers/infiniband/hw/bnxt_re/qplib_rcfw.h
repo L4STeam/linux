@@ -138,6 +138,8 @@ struct bnxt_qplib_qp_node {
 #define FIRMWARE_INITIALIZED_FLAG	(0)
 #define FIRMWARE_FIRST_FLAG		(31)
 #define FIRMWARE_TIMED_OUT		(3)
+#define ERR_DEVICE_DETACHED             (4)
+
 struct bnxt_qplib_cmdq_mbox {
 	struct bnxt_qplib_reg_desc	reg;
 	void __iomem			*prod;
@@ -150,7 +152,6 @@ struct bnxt_qplib_cmdq_ctx {
 	wait_queue_head_t		waitq;
 	unsigned long			flags;
 	unsigned long			*cmdq_bitmap;
-	u32				bmap_size;
 	u32				seq_num;
 };
 

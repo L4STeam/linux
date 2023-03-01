@@ -13,6 +13,7 @@
 #include <linux/of_reserved_mem.h>
 #include <linux/platform_device.h>
 
+#include <drm/drm_aperture.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_fb_cma_helper.h>
@@ -40,7 +41,7 @@ static int drm_sun4i_gem_dumb_create(struct drm_file *file_priv,
 
 DEFINE_DRM_GEM_CMA_FOPS(sun4i_drv_fops);
 
-static struct drm_driver sun4i_drv_driver = {
+static const struct drm_driver sun4i_drv_driver = {
 	.driver_features	= DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
 
 	/* Generic Operations */
@@ -71,7 +72,6 @@ static int sun4i_drv_bind(struct device *dev)
 		goto free_drm;
 	}
 
-	dev_set_drvdata(dev, drm);
 	drm->dev_private = drv;
 	INIT_LIST_HEAD(&drv->frontend_list);
 	INIT_LIST_HEAD(&drv->engine_list);
@@ -96,10 +96,10 @@ static int sun4i_drv_bind(struct device *dev)
 	if (ret)
 		goto cleanup_mode_config;
 
-	drm->irq_enabled = true;
-
 	/* Remove early framebuffers (ie. simplefb) */
-	drm_fb_helper_remove_conflicting_framebuffers(NULL, "sun4i-drm-fb", false);
+	ret = drm_aperture_remove_framebuffers(false, &sun4i_drv_driver);
+	if (ret)
+		goto cleanup_mode_config;
 
 	sun4i_framebuffer_init(drm);
 
@@ -111,6 +111,8 @@ static int sun4i_drv_bind(struct device *dev)
 		goto finish_poll;
 
 	drm_fbdev_generic_setup(drm, 32);
+
+	dev_set_drvdata(dev, drm);
 
 	return 0;
 
@@ -128,6 +130,7 @@ static void sun4i_drv_unbind(struct device *dev)
 {
 	struct drm_device *drm = dev_get_drvdata(dev);
 
+	dev_set_drvdata(dev, NULL);
 	drm_dev_unregister(drm);
 	drm_kms_helper_poll_fini(drm);
 	drm_atomic_helper_shutdown(drm);

@@ -301,6 +301,9 @@ int tcp_gro_complete(struct sk_buff *skb)
 	if (th->cwr)
 		skb_shinfo(skb)->gso_type |= SKB_GSO_TCP_ACCECN;
 
+	if (skb->encapsulation)
+		skb->inner_transport_header = skb->transport_header;
+
 	return 0;
 }
 EXPORT_SYMBOL(tcp_gro_complete);

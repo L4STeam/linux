@@ -13,25 +13,16 @@
 #include <linux/mutex.h>
 #include <linux/property.h>
 #include <linux/slab.h>
-#include <linux/usb/typec_mux.h>
 
-#include "bus.h"
-
-static bool dev_name_ends_with(struct device *dev, const char *suffix)
-{
-	const char *name = dev_name(dev);
-	const int name_len = strlen(name);
-	const int suffix_len = strlen(suffix);
-
-	if (suffix_len > name_len)
-		return false;
-
-	return strcmp(name + (name_len - suffix_len), suffix) == 0;
-}
+#include "class.h"
+#include "mux.h"
 
 static int switch_fwnode_match(struct device *dev, const void *fwnode)
 {
-	return dev_fwnode(dev) == fwnode && dev_name_ends_with(dev, "-switch");
+	if (!is_typec_switch(dev))
+		return 0;
+
+	return dev_fwnode(dev) == fwnode;
 }
 
 static void *typec_switch_match(struct fwnode_handle *fwnode, const char *id,
@@ -39,9 +30,22 @@ static void *typec_switch_match(struct fwnode_handle *fwnode, const char *id,
 {
 	struct device *dev;
 
+	/*
+	 * Device graph (OF graph) does not give any means to identify the
+	 * device type or the device class of the remote port parent that @fwnode
+	 * represents, so in order to identify the type or the class of @fwnode
+	 * an additional device property is needed. With typec switches the
+	 * property is named "orientation-switch" (@id). The value of the device
+	 * property is ignored.
+	 */
 	if (id && !fwnode_property_present(fwnode, id))
 		return NULL;
 
+	/*
+	 * At this point we are sure that @fwnode is a typec switch in all
+	 * cases. If the switch hasn't yet been registered for some reason, the
+	 * function "defers probe" for now.
+	 */
 	dev = class_find_device(&typec_mux_class, NULL, fwnode,
 				switch_fwnode_match);
 
@@ -90,7 +94,7 @@ static void typec_switch_release(struct device *dev)
 	kfree(to_typec_switch(dev));
 }
 
-static const struct device_type typec_switch_dev_type = {
+const struct device_type typec_switch_dev_type = {
 	.name = "orientation_switch",
 	.release = typec_switch_release,
 };
@@ -127,8 +131,11 @@ typec_switch_register(struct device *parent,
 	sw->dev.class = &typec_mux_class;
 	sw->dev.type = &typec_switch_dev_type;
 	sw->dev.driver_data = desc->drvdata;
-	dev_set_name(&sw->dev, "%s-switch",
-		     desc->name ? desc->name : dev_name(parent));
+	ret = dev_set_name(&sw->dev, "%s-switch", desc->name ? desc->name : dev_name(parent));
+	if (ret) {
+		put_device(&sw->dev);
+		return ERR_PTR(ret);
+	}
 
 	ret = device_add(&sw->dev);
 	if (ret) {
@@ -180,7 +187,10 @@ EXPORT_SYMBOL_GPL(typec_switch_get_drvdata);
 
 static int mux_fwnode_match(struct device *dev, const void *fwnode)
 {
-	return dev_fwnode(dev) == fwnode && dev_name_ends_with(dev, "-mux");
+	if (!is_typec_mux(dev))
+		return 0;
+
+	return dev_fwnode(dev) == fwnode;
 }
 
 static void *typec_mux_match(struct fwnode_handle *fwnode, const char *id,
@@ -191,6 +201,7 @@ static void *typec_mux_match(struct fwnode_handle *fwnode, const char *id,
 	bool match;
 	int nval;
 	u16 *val;
+	int ret;
 	int i;
 
 	/*
@@ -218,10 +229,10 @@ static void *typec_mux_match(struct fwnode_handle *fwnode, const char *id,
 	if (!val)
 		return ERR_PTR(-ENOMEM);
 
-	nval = fwnode_property_read_u16_array(fwnode, "svid", val, nval);
-	if (nval < 0) {
+	ret = fwnode_property_read_u16_array(fwnode, "svid", val, nval);
+	if (ret < 0) {
 		kfree(val);
-		return ERR_PTR(nval);
+		return ERR_PTR(ret);
 	}
 
 	for (i = 0; i < nval; i++) {
@@ -238,7 +249,7 @@ find_mux:
 	dev = class_find_device(&typec_mux_class, NULL, fwnode,
 				mux_fwnode_match);
 
-	return dev ? to_typec_switch(dev) : ERR_PTR(-EPROBE_DEFER);
+	return dev ? to_typec_mux(dev) : ERR_PTR(-EPROBE_DEFER);
 }
 
 /**
@@ -294,7 +305,7 @@ static void typec_mux_release(struct device *dev)
 	kfree(to_typec_mux(dev));
 }
 
-static const struct device_type typec_mux_dev_type = {
+const struct device_type typec_mux_dev_type = {
 	.name = "mode_switch",
 	.release = typec_mux_release,
 };
@@ -330,8 +341,11 @@ typec_mux_register(struct device *parent, const struct typec_mux_desc *desc)
 	mux->dev.class = &typec_mux_class;
 	mux->dev.type = &typec_mux_dev_type;
 	mux->dev.driver_data = desc->drvdata;
-	dev_set_name(&mux->dev, "%s-mux",
-		     desc->name ? desc->name : dev_name(parent));
+	ret = dev_set_name(&mux->dev, "%s-mux", desc->name ? desc->name : dev_name(parent));
+	if (ret) {
+		put_device(&mux->dev);
+		return ERR_PTR(ret);
+	}
 
 	ret = device_add(&mux->dev);
 	if (ret) {

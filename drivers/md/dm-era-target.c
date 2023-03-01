@@ -363,28 +363,32 @@ static void ws_unpack(const struct writeset_disk *disk, struct writeset_metadata
 	core->root = le64_to_cpu(disk->root);
 }
 
-static void ws_inc(void *context, const void *value)
+static void ws_inc(void *context, const void *value, unsigned count)
 {
 	struct era_metadata *md = context;
 	struct writeset_disk ws_d;
 	dm_block_t b;
+	unsigned i;
 
-	memcpy(&ws_d, value, sizeof(ws_d));
-	b = le64_to_cpu(ws_d.root);
-
-	dm_tm_inc(md->tm, b);
+	for (i = 0; i < count; i++) {
+		memcpy(&ws_d, value + (i * sizeof(ws_d)), sizeof(ws_d));
+		b = le64_to_cpu(ws_d.root);
+		dm_tm_inc(md->tm, b);
+	}
 }
 
-static void ws_dec(void *context, const void *value)
+static void ws_dec(void *context, const void *value, unsigned count)
 {
 	struct era_metadata *md = context;
 	struct writeset_disk ws_d;
 	dm_block_t b;
+	unsigned i;
 
-	memcpy(&ws_d, value, sizeof(ws_d));
-	b = le64_to_cpu(ws_d.root);
-
-	dm_bitset_del(&md->bitset_info, b);
+	for (i = 0; i < count; i++) {
+		memcpy(&ws_d, value + (i * sizeof(ws_d)), sizeof(ws_d));
+		b = le64_to_cpu(ws_d.root);
+		dm_bitset_del(&md->bitset_info, b);
+	}
 }
 
 static int ws_eq(void *context, const void *value1, const void *value2)
@@ -1396,7 +1400,7 @@ static void start_worker(struct era *era)
 static void stop_worker(struct era *era)
 {
 	atomic_set(&era->suspended, 1);
-	flush_workqueue(era->wq);
+	drain_workqueue(era->wq);
 }
 
 /*----------------------------------------------------------------
@@ -1566,6 +1570,12 @@ static void era_postsuspend(struct dm_target *ti)
 	}
 
 	stop_worker(era);
+
+	r = metadata_commit(era->md);
+	if (r) {
+		DMERR("%s: metadata_commit failed", __func__);
+		/* FIXME: fail mode */
+	}
 }
 
 static int era_preresume(struct dm_target *ti)
@@ -1639,6 +1649,10 @@ static void era_status(struct dm_target *ti, status_type_t type,
 		DMEMIT("%s ", buf);
 		format_dev_t(buf, era->origin_dev->bdev->bd_dev);
 		DMEMIT("%s %u", buf, era->sectors_per_block);
+		break;
+
+	case STATUSTYPE_IMA:
+		*result = '\0';
 		break;
 	}
 

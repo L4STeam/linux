@@ -108,7 +108,7 @@ __mt76x02u_mcu_send_msg(struct mt76_dev *dev, struct sk_buff *skb,
 	ret = mt76u_bulk_msg(dev, skb->data, skb->len, NULL, 500,
 			     MT_EP_OUT_INBAND_CMD);
 	if (ret)
-		return ret;
+		goto out;
 
 	if (wait_resp)
 		ret = mt76x02u_mcu_wait_resp(dev, seq);
@@ -297,6 +297,7 @@ void mt76x02u_init_mcu(struct mt76_dev *dev)
 		.headroom = MT_CMD_HDR_LEN,
 		.tailroom = 8,
 		.mcu_send_msg = mt76x02u_mcu_send_msg,
+		.mcu_parse_response = mt76x02_mcu_parse_response,
 		.mcu_wr_rp = mt76x02u_mcu_wr_rp,
 		.mcu_rd_rp = mt76x02u_mcu_rd_rp,
 	};

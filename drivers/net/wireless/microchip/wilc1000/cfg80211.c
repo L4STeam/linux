@@ -129,8 +129,7 @@ static void cfg_scan_result(enum scan_event scan_event,
 						info->frame_len,
 						(s32)info->rssi * 100,
 						GFP_KERNEL);
-		if (!bss)
-			cfg80211_put_bss(wiphy, bss);
+		cfg80211_put_bss(wiphy, bss);
 	} else if (scan_event == SCAN_EVENT_DONE) {
 		mutex_lock(&priv->scan_req_lock);
 
@@ -1538,7 +1537,7 @@ static int del_virtual_intf(struct wiphy *wiphy, struct wireless_dev *wdev)
 		wilc_wfi_deinit_mon_interface(wl, true);
 	vif = netdev_priv(wdev->netdev);
 	cfg80211_stop_iface(wiphy, wdev, GFP_KERNEL);
-	unregister_netdevice(vif->ndev);
+	cfg80211_unregister_netdevice(vif->ndev);
 	vif->monitor_flag = 0;
 
 	wilc_set_operation_mode(vif, 0, 0, 0);
@@ -1709,7 +1708,7 @@ int wilc_cfg80211_init(struct wilc **wilc, struct device *dev, int io_type,
 {
 	struct wilc *wl;
 	struct wilc_vif *vif;
-	int ret;
+	int ret, i;
 
 	wl = wilc_create_wiphy(dev);
 	if (!wl)
@@ -1725,7 +1724,10 @@ int wilc_cfg80211_init(struct wilc **wilc, struct device *dev, int io_type,
 	wl->io_type = io_type;
 	wl->hif_func = ops;
 	wl->chip_ps_state = WILC_CHIP_WAKEDUP;
-	INIT_LIST_HEAD(&wl->txq_head.list);
+
+	for (i = 0; i < NQUEUES; i++)
+		INIT_LIST_HEAD(&wl->txq[i].txq_head.list);
+
 	INIT_LIST_HEAD(&wl->rxq_head.list);
 	INIT_LIST_HEAD(&wl->vif_list);
 

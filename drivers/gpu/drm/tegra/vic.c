@@ -5,6 +5,7 @@
 
 #include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/dma-mapping.h>
 #include <linux/host1x.h>
 #include <linux/iommu.h>
 #include <linux/module.h>
@@ -29,7 +30,6 @@ struct vic_config {
 
 struct vic {
 	struct falcon falcon;
-	bool booted;
 
 	void __iomem *regs;
 	struct tegra_drm_client client;
@@ -52,48 +52,6 @@ static void vic_writel(struct vic *vic, u32 value, unsigned int offset)
 	writel(value, vic->regs + offset);
 }
 
-static int vic_runtime_resume(struct device *dev)
-{
-	struct vic *vic = dev_get_drvdata(dev);
-	int err;
-
-	err = clk_prepare_enable(vic->clk);
-	if (err < 0)
-		return err;
-
-	usleep_range(10, 20);
-
-	err = reset_control_deassert(vic->rst);
-	if (err < 0)
-		goto disable;
-
-	usleep_range(10, 20);
-
-	return 0;
-
-disable:
-	clk_disable_unprepare(vic->clk);
-	return err;
-}
-
-static int vic_runtime_suspend(struct device *dev)
-{
-	struct vic *vic = dev_get_drvdata(dev);
-	int err;
-
-	err = reset_control_assert(vic->rst);
-	if (err < 0)
-		return err;
-
-	usleep_range(2000, 4000);
-
-	clk_disable_unprepare(vic->clk);
-
-	vic->booted = false;
-
-	return 0;
-}
-
 static int vic_boot(struct vic *vic)
 {
 #ifdef CONFIG_IOMMU_API
@@ -102,9 +60,6 @@ static int vic_boot(struct vic *vic)
 	u32 fce_ucode_size, fce_bin_data_offset;
 	void *hdr;
 	int err = 0;
-
-	if (vic->booted)
-		return 0;
 
 #ifdef CONFIG_IOMMU_API
 	if (vic->config->supports_sid && spec) {
@@ -117,7 +72,19 @@ static int vic_boot(struct vic *vic)
 		if (spec->num_ids > 0) {
 			value = spec->ids[0] & 0xffff;
 
+			/*
+			 * STREAMID0 is used for input/output buffers.
+			 * Initialize it to SID_VIC in case context isolation
+			 * is not enabled, and SID_VIC is used for both firmware
+			 * and data buffers.
+			 *
+			 * If context isolation is enabled, it will be
+			 * overridden by the SETSTREAMID opcode as part of
+			 * each job.
+			 */
 			vic_writel(vic, value, VIC_THI_STREAMID0);
+
+			/* STREAMID1 is used for firmware loading. */
 			vic_writel(vic, value, VIC_THI_STREAMID1);
 		}
 	}
@@ -135,16 +102,19 @@ static int vic_boot(struct vic *vic)
 
 	hdr = vic->falcon.firmware.virt;
 	fce_bin_data_offset = *(u32 *)(hdr + VIC_UCODE_FCE_DATA_OFFSET);
-	hdr = vic->falcon.firmware.virt +
-		*(u32 *)(hdr + VIC_UCODE_FCE_HEADER_OFFSET);
-	fce_ucode_size = *(u32 *)(hdr + FCE_UCODE_SIZE_OFFSET);
 
-	falcon_execute_method(&vic->falcon, VIC_SET_APPLICATION_ID, 1);
-	falcon_execute_method(&vic->falcon, VIC_SET_FCE_UCODE_SIZE,
-			      fce_ucode_size);
-	falcon_execute_method(&vic->falcon, VIC_SET_FCE_UCODE_OFFSET,
-			      (vic->falcon.firmware.iova + fce_bin_data_offset)
-				>> 8);
+	/* Old VIC firmware needs kernel help with setting up FCE microcode. */
+	if (fce_bin_data_offset != 0x0 && fce_bin_data_offset != 0xa5a5a5a5) {
+		hdr = vic->falcon.firmware.virt +
+			*(u32 *)(hdr + VIC_UCODE_FCE_HEADER_OFFSET);
+		fce_ucode_size = *(u32 *)(hdr + FCE_UCODE_SIZE_OFFSET);
+
+		falcon_execute_method(&vic->falcon, VIC_SET_FCE_UCODE_SIZE,
+				      fce_ucode_size);
+		falcon_execute_method(
+			&vic->falcon, VIC_SET_FCE_UCODE_OFFSET,
+			(vic->falcon.firmware.iova + fce_bin_data_offset) >> 8);
+	}
 
 	err = falcon_wait_idle(&vic->falcon);
 	if (err < 0) {
@@ -152,8 +122,6 @@ static int vic_boot(struct vic *vic)
 			"failed to set application ID and FCE base\n");
 		return err;
 	}
-
-	vic->booted = true;
 
 	return 0;
 }
@@ -197,7 +165,7 @@ static int vic_init(struct host1x_client *client)
 	return 0;
 
 free_syncpt:
-	host1x_syncpt_free(client->syncpts[0]);
+	host1x_syncpt_put(client->syncpts[0]);
 free_channel:
 	host1x_channel_put(vic->channel);
 detach:
@@ -221,7 +189,7 @@ static int vic_exit(struct host1x_client *client)
 	if (err < 0)
 		return err;
 
-	host1x_syncpt_free(client->syncpts[0]);
+	host1x_syncpt_put(client->syncpts[0]);
 	host1x_channel_put(vic->channel);
 	host1x_client_iommu_detach(client);
 
@@ -265,10 +233,8 @@ static int vic_load_firmware(struct vic *vic)
 
 	if (!client->group) {
 		virt = dma_alloc_coherent(vic->dev, size, &iova, GFP_KERNEL);
-
-		err = dma_mapping_error(vic->dev, iova);
-		if (err < 0)
-			return err;
+		if (!virt)
+			return -ENOMEM;
 	} else {
 		virt = tegra_drm_alloc(tegra, size, &iova);
 	}
@@ -308,6 +274,57 @@ cleanup:
 	return err;
 }
 
+
+static int __maybe_unused vic_runtime_resume(struct device *dev)
+{
+	struct vic *vic = dev_get_drvdata(dev);
+	int err;
+
+	err = clk_prepare_enable(vic->clk);
+	if (err < 0)
+		return err;
+
+	usleep_range(10, 20);
+
+	err = reset_control_deassert(vic->rst);
+	if (err < 0)
+		goto disable;
+
+	usleep_range(10, 20);
+
+	err = vic_load_firmware(vic);
+	if (err < 0)
+		goto assert;
+
+	err = vic_boot(vic);
+	if (err < 0)
+		goto assert;
+
+	return 0;
+
+assert:
+	reset_control_assert(vic->rst);
+disable:
+	clk_disable_unprepare(vic->clk);
+	return err;
+}
+
+static int __maybe_unused vic_runtime_suspend(struct device *dev)
+{
+	struct vic *vic = dev_get_drvdata(dev);
+	int err;
+
+	err = reset_control_assert(vic->rst);
+	if (err < 0)
+		return err;
+
+	usleep_range(2000, 4000);
+
+	clk_disable_unprepare(vic->clk);
+
+	return 0;
+}
+
 static int vic_open_channel(struct tegra_drm_client *client,
 			    struct tegra_drm_context *context)
 {
@@ -318,25 +335,13 @@ static int vic_open_channel(struct tegra_drm_client *client,
 	if (err < 0)
 		return err;
 
-	err = vic_load_firmware(vic);
-	if (err < 0)
-		goto rpm_put;
-
-	err = vic_boot(vic);
-	if (err < 0)
-		goto rpm_put;
-
 	context->channel = host1x_channel_get(vic->channel);
 	if (!context->channel) {
-		err = -ENOMEM;
-		goto rpm_put;
+		pm_runtime_put(vic->dev);
+		return -ENOMEM;
 	}
 
 	return 0;
-
-rpm_put:
-	pm_runtime_put(vic->dev);
-	return err;
 }
 
 static void vic_close_channel(struct tegra_drm_context *context)
@@ -344,7 +349,6 @@ static void vic_close_channel(struct tegra_drm_context *context)
 	struct vic *vic = to_vic(context->client);
 
 	host1x_channel_put(context->channel);
-
 	pm_runtime_put(vic->dev);
 }
 

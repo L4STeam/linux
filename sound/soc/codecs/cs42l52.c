@@ -137,7 +137,9 @@ static DECLARE_TLV_DB_SCALE(mic_tlv, 1600, 100, 0);
 
 static DECLARE_TLV_DB_SCALE(pga_tlv, -600, 50, 0);
 
-static DECLARE_TLV_DB_SCALE(mix_tlv, -50, 50, 0);
+static DECLARE_TLV_DB_SCALE(pass_tlv, -6000, 50, 0);
+
+static DECLARE_TLV_DB_SCALE(mix_tlv, -5150, 50, 0);
 
 static DECLARE_TLV_DB_SCALE(beep_tlv, -56, 200, 0);
 
@@ -351,7 +353,7 @@ static const struct snd_kcontrol_new cs42l52_snd_controls[] = {
 			      CS42L52_SPKB_VOL, 0, 0x40, 0xC0, hl_tlv),
 
 	SOC_DOUBLE_R_SX_TLV("Bypass Volume", CS42L52_PASSTHRUA_VOL,
-			      CS42L52_PASSTHRUB_VOL, 0, 0x88, 0x90, pga_tlv),
+			      CS42L52_PASSTHRUB_VOL, 0, 0x88, 0x90, pass_tlv),
 
 	SOC_DOUBLE("Bypass Mute", CS42L52_MISC_CTL, 4, 5, 1, 0),
 
@@ -364,7 +366,7 @@ static const struct snd_kcontrol_new cs42l52_snd_controls[] = {
 			      CS42L52_ADCB_VOL, 0, 0xA0, 0x78, ipd_tlv),
 	SOC_DOUBLE_R_SX_TLV("ADC Mixer Volume",
 			     CS42L52_ADCA_MIXER_VOL, CS42L52_ADCB_MIXER_VOL,
-				0, 0x19, 0x7F, ipd_tlv),
+				0, 0x19, 0x7F, mix_tlv),
 
 	SOC_DOUBLE("ADC Switch", CS42L52_ADC_MISC_CTL, 0, 1, 1, 0),
 
@@ -944,6 +946,7 @@ static int cs42l52_beep_event(struct input_dev *dev, unsigned int type,
 	case SND_BELL:
 		if (hz)
 			hz = 261;
+		break;
 	case SND_TONE:
 		break;
 	default:
@@ -956,9 +959,8 @@ static int cs42l52_beep_event(struct input_dev *dev, unsigned int type,
 	return 0;
 }
 
-static ssize_t cs42l52_beep_set(struct device *dev,
-			       struct device_attribute *attr,
-			       const char *buf, size_t count)
+static ssize_t beep_store(struct device *dev, struct device_attribute *attr,
+			  const char *buf, size_t count)
 {
 	struct cs42l52_private *cs42l52 = dev_get_drvdata(dev);
 	long int time;
@@ -973,7 +975,7 @@ static ssize_t cs42l52_beep_set(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(beep, 0200, NULL, cs42l52_beep_set);
+static DEVICE_ATTR_WO(beep);
 
 static void cs42l52_init_beep(struct snd_soc_component *component)
 {
@@ -1092,7 +1094,7 @@ static int cs42l52_i2c_probe(struct i2c_client *i2c_client,
 	struct cs42l52_private *cs42l52;
 	struct cs42l52_platform_data *pdata = dev_get_platdata(&i2c_client->dev);
 	int ret;
-	unsigned int devid = 0;
+	unsigned int devid;
 	unsigned int reg;
 	u32 val32;
 
@@ -1162,6 +1164,11 @@ static int cs42l52_i2c_probe(struct i2c_client *i2c_client,
 			 ret);
 
 	ret = regmap_read(cs42l52->regmap, CS42L52_CHIP, &reg);
+	if (ret) {
+		dev_err(&i2c_client->dev, "Failed to read chip ID: %d\n", ret);
+		return ret;
+	}
+
 	devid = reg & CS42L52_CHIP_ID_MASK;
 	if (devid != CS42L52_CHIP_ID) {
 		ret = -ENODEV;
@@ -1198,11 +1205,8 @@ static int cs42l52_i2c_probe(struct i2c_client *i2c_client,
 				   CS42L52_IFACE_CTL2_BIAS_LVL,
 				cs42l52->pdata.micbias_lvl);
 
-	ret =  devm_snd_soc_register_component(&i2c_client->dev,
+	return devm_snd_soc_register_component(&i2c_client->dev,
 			&soc_component_dev_cs42l52, &cs42l52_dai, 1);
-	if (ret < 0)
-		return ret;
-	return 0;
 }
 
 static const struct of_device_id cs42l52_of_match[] = {

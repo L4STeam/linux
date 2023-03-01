@@ -50,7 +50,7 @@ cleanup() {
     ip link del veth-tap 2>/dev/null || true
 
     for ns in hv-1 hv-2 vm-1 vm-2; do
-        ip netns del $ns || true
+        ip netns del $ns 2>/dev/null || true
     done
 }
 
@@ -118,11 +118,11 @@ echo "[ OK ]"
 
 # Move the underlay to a non-default VRF
 ip -netns hv-1 link set veth0 vrf vrf-underlay
-ip -netns hv-1 link set veth0 down
-ip -netns hv-1 link set veth0 up
+ip -netns hv-1 link set vxlan0 down
+ip -netns hv-1 link set vxlan0 up
 ip -netns hv-2 link set veth0 vrf vrf-underlay
-ip -netns hv-2 link set veth0 down
-ip -netns hv-2 link set veth0 up
+ip -netns hv-2 link set vxlan0 down
+ip -netns hv-2 link set vxlan0 up
 
 echo -n "Check VM connectivity through VXLAN (underlay in a VRF)            "
 ip netns exec vm-1 ping -c 1 -W 1 10.0.0.2 &> /dev/null || (echo "[FAIL]"; false)

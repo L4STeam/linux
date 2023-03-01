@@ -30,17 +30,14 @@ u64 rflags;
 struct svm_test_data *
 vcpu_alloc_svm(struct kvm_vm *vm, vm_vaddr_t *p_svm_gva)
 {
-	vm_vaddr_t svm_gva = vm_vaddr_alloc(vm, getpagesize(),
-					    0x10000, 0, 0);
+	vm_vaddr_t svm_gva = vm_vaddr_alloc_page(vm);
 	struct svm_test_data *svm = addr_gva2hva(vm, svm_gva);
 
-	svm->vmcb = (void *)vm_vaddr_alloc(vm, getpagesize(),
-					   0x10000, 0, 0);
+	svm->vmcb = (void *)vm_vaddr_alloc_page(vm);
 	svm->vmcb_hva = addr_gva2hva(vm, (uintptr_t)svm->vmcb);
 	svm->vmcb_gpa = addr_gva2gpa(vm, (uintptr_t)svm->vmcb);
 
-	svm->save_area = (void *)vm_vaddr_alloc(vm, getpagesize(),
-						0x10000, 0, 0);
+	svm->save_area = (void *)vm_vaddr_alloc_page(vm);
 	svm->save_area_hva = addr_gva2hva(vm, (uintptr_t)svm->save_area);
 	svm->save_area_gpa = addr_gva2gpa(vm, (uintptr_t)svm->save_area);
 
@@ -55,6 +52,18 @@ static void vmcb_set_seg(struct vmcb_seg *seg, u16 selector,
 	seg->attrib = attr;
 	seg->limit = limit;
 	seg->base = base;
+}
+
+/*
+ * Avoid using memset to clear the vmcb, since libc may not be
+ * available in L1 (and, even if it is, features that libc memset may
+ * want to use, like AVX, may not be enabled).
+ */
+static void clear_vmcb(struct vmcb *vmcb)
+{
+	int n = sizeof(*vmcb) / sizeof(u32);
+
+	asm volatile ("rep stosl" : "+c"(n), "+D"(vmcb) : "a"(0) : "memory");
 }
 
 void generic_svm_setup(struct svm_test_data *svm, void *guest_rip, void *guest_rsp)
@@ -73,8 +82,8 @@ void generic_svm_setup(struct svm_test_data *svm, void *guest_rip, void *guest_r
 	wrmsr(MSR_EFER, efer | EFER_SVME);
 	wrmsr(MSR_VM_HSAVE_PA, svm->save_area_gpa);
 
-	memset(vmcb, 0, sizeof(*vmcb));
-	asm volatile ("vmsave\n\t" : : "a" (vmcb_gpa) : "memory");
+	clear_vmcb(vmcb);
+	asm volatile ("vmsave %0\n\t" : : "a" (vmcb_gpa) : "memory");
 	vmcb_set_seg(&save->es, get_es(), 0, -1U, data_seg_attr);
 	vmcb_set_seg(&save->cs, get_cs(), 0, -1U, code_seg_attr);
 	vmcb_set_seg(&save->ss, get_ss(), 0, -1U, data_seg_attr);
@@ -131,19 +140,19 @@ void generic_svm_setup(struct svm_test_data *svm, void *guest_rip, void *guest_r
 void run_guest(struct vmcb *vmcb, uint64_t vmcb_gpa)
 {
 	asm volatile (
-		"vmload\n\t"
+		"vmload %[vmcb_gpa]\n\t"
 		"mov rflags, %%r15\n\t"	// rflags
 		"mov %%r15, 0x170(%[vmcb])\n\t"
 		"mov guest_regs, %%r15\n\t"	// rax
 		"mov %%r15, 0x1f8(%[vmcb])\n\t"
 		LOAD_GPR_C
-		"vmrun\n\t"
+		"vmrun %[vmcb_gpa]\n\t"
 		SAVE_GPR_C
 		"mov 0x170(%[vmcb]), %%r15\n\t"	// rflags
 		"mov %%r15, rflags\n\t"
 		"mov 0x1f8(%[vmcb]), %%r15\n\t"	// rax
 		"mov %%r15, guest_regs\n\t"
-		"vmsave\n\t"
+		"vmsave %[vmcb_gpa]\n\t"
 		: : [vmcb] "r" (vmcb), [vmcb_gpa] "a" (vmcb_gpa)
 		: "r15", "memory");
 }

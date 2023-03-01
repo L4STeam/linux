@@ -32,7 +32,14 @@ static struct cros_ec_platform pd_p = {
 	.cmd_offset = EC_CMD_PASSTHRU_OFFSET(CROS_EC_DEV_PD_INDEX),
 };
 
-static irqreturn_t ec_irq_handler(int irq, void *data)
+/**
+ * cros_ec_irq_handler() - top half part of the interrupt handler
+ * @irq: IRQ id
+ * @data: (ec_dev) Device with events to process.
+ *
+ * Return: Wakeup the bottom half
+ */
+static irqreturn_t cros_ec_irq_handler(int irq, void *data)
 {
 	struct cros_ec_device *ec_dev = data;
 
@@ -51,7 +58,7 @@ static irqreturn_t ec_irq_handler(int irq, void *data)
  * Return: true if more events are still pending and this function should be
  * called again.
  */
-bool cros_ec_handle_event(struct cros_ec_device *ec_dev)
+static bool cros_ec_handle_event(struct cros_ec_device *ec_dev)
 {
 	bool wake_event;
 	bool ec_has_more_events;
@@ -73,9 +80,15 @@ bool cros_ec_handle_event(struct cros_ec_device *ec_dev)
 
 	return ec_has_more_events;
 }
-EXPORT_SYMBOL(cros_ec_handle_event);
 
-static irqreturn_t ec_irq_thread(int irq, void *data)
+/**
+ * cros_ec_irq_thread() - bottom half part of the interrupt handler
+ * @irq: IRQ id
+ * @data: (ec_dev) Device with events to process.
+ *
+ * Return: Interrupt handled.
+ */
+irqreturn_t cros_ec_irq_thread(int irq, void *data)
 {
 	struct cros_ec_device *ec_dev = data;
 	bool ec_has_more_events;
@@ -86,6 +99,7 @@ static irqreturn_t ec_irq_thread(int irq, void *data)
 
 	return IRQ_HANDLED;
 }
+EXPORT_SYMBOL(cros_ec_irq_thread);
 
 static int cros_ec_sleep_event(struct cros_ec_device *ec_dev, u8 sleep_event)
 {
@@ -121,16 +135,16 @@ static int cros_ec_sleep_event(struct cros_ec_device *ec_dev, u8 sleep_event)
 	buf.msg.command = EC_CMD_HOST_SLEEP_EVENT;
 
 	ret = cros_ec_cmd_xfer_status(ec_dev, &buf.msg);
-
-	/* For now, report failure to transition to S0ix with a warning. */
+	/* Report failure to transition to system wide suspend with a warning. */
 	if (ret >= 0 && ec_dev->host_sleep_v1 &&
-	    (sleep_event == HOST_SLEEP_EVENT_S0IX_RESUME)) {
+	    (sleep_event == HOST_SLEEP_EVENT_S0IX_RESUME ||
+	     sleep_event == HOST_SLEEP_EVENT_S3_RESUME)) {
 		ec_dev->last_resume_result =
 			buf.u.resp1.resume_response.sleep_transitions;
 
 		WARN_ONCE(buf.u.resp1.resume_response.sleep_transitions &
 			  EC_HOST_RESUME_SLEEP_TIMEOUT,
-			  "EC detected sleep transition timeout. Total slp_s0 transitions: %d",
+			  "EC detected sleep transition timeout. Total sleep transitions: %d",
 			  buf.u.resp1.resume_response.sleep_transitions &
 			  EC_HOST_RESUME_SLEEP_TRANSITIONS_MASK);
 	}
@@ -175,6 +189,8 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 	ec_dev->max_request = sizeof(struct ec_params_hello);
 	ec_dev->max_response = sizeof(struct ec_response_get_protocol_info);
 	ec_dev->max_passthru = 0;
+	ec_dev->ec = NULL;
+	ec_dev->pd = NULL;
 
 	ec_dev->din = devm_kzalloc(dev, ec_dev->din_size, GFP_KERNEL);
 	if (!ec_dev->din)
@@ -194,8 +210,8 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 
 	if (ec_dev->irq > 0) {
 		err = devm_request_threaded_irq(dev, ec_dev->irq,
-						ec_irq_handler,
-						ec_irq_thread,
+						cros_ec_irq_handler,
+						cros_ec_irq_thread,
 						IRQF_TRIGGER_LOW | IRQF_ONESHOT,
 						"chromeos-ec", ec_dev);
 		if (err) {
@@ -231,18 +247,16 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 		if (IS_ERR(ec_dev->pd)) {
 			dev_err(ec_dev->dev,
 				"Failed to create CrOS PD platform device\n");
-			platform_device_unregister(ec_dev->ec);
-			return PTR_ERR(ec_dev->pd);
+			err = PTR_ERR(ec_dev->pd);
+			goto exit;
 		}
 	}
 
 	if (IS_ENABLED(CONFIG_OF) && dev->of_node) {
 		err = devm_of_platform_populate(dev);
 		if (err) {
-			platform_device_unregister(ec_dev->pd);
-			platform_device_unregister(ec_dev->ec);
 			dev_err(dev, "Failed to register sub-devices\n");
-			return err;
+			goto exit;
 		}
 	}
 
@@ -264,12 +278,23 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 		err = blocking_notifier_chain_register(&ec_dev->event_notifier,
 						      &ec_dev->notifier_ready);
 		if (err)
-			return err;
+			goto exit;
 	}
 
 	dev_info(dev, "Chrome EC device registered\n");
 
+	/*
+	 * Unlock EC that may be waiting for AP to process MKBP events.
+	 * If the AP takes to long to answer, the EC would stop sending events.
+	 */
+	if (ec_dev->mkbp_event_supported)
+		cros_ec_irq_thread(0, ec_dev);
+
 	return 0;
+exit:
+	platform_device_unregister(ec_dev->ec);
+	platform_device_unregister(ec_dev->pd);
+	return err;
 }
 EXPORT_SYMBOL(cros_ec_register);
 

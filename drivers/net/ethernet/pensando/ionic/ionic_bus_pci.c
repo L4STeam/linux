@@ -165,10 +165,10 @@ static int ionic_vf_alloc(struct ionic *ionic, int num_vfs)
 			goto out;
 		}
 
+		ionic->num_vfs++;
 		/* ignore failures from older FW, we just won't get stats */
 		(void)ionic_set_vf_config(ionic, i, IONIC_VF_ATTR_STATSADDR,
 					  (u8 *)&v->stats_pa);
-		ionic->num_vfs++;
 	}
 
 out:
@@ -183,6 +183,10 @@ static int ionic_sriov_configure(struct pci_dev *pdev, int num_vfs)
 	struct ionic *ionic = pci_get_drvdata(pdev);
 	struct device *dev = ionic->dev;
 	int ret = 0;
+
+	if (ionic->lif &&
+	    test_bit(IONIC_LIF_F_FW_RESET, ionic->lif->state))
+		return -EBUSY;
 
 	if (num_vfs > 0) {
 		ret = pci_enable_sriov(pdev, num_vfs);
@@ -251,7 +255,7 @@ static int ionic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	err = ionic_map_bars(ionic);
 	if (err)
-		goto err_out_pci_disable_device;
+		goto err_out_pci_release_regions;
 
 	/* Configure the device */
 	err = ionic_setup(ionic);
@@ -327,6 +331,9 @@ static int ionic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto err_out_deregister_lifs;
 	}
 
+	mod_timer(&ionic->watchdog_timer,
+		  round_jiffies(jiffies + ionic->watchdog_period));
+
 	return 0;
 
 err_out_deregister_lifs:
@@ -344,7 +351,6 @@ err_out_port_reset:
 err_out_reset:
 	ionic_reset(ionic);
 err_out_teardown:
-	del_timer_sync(&ionic->watchdog_timer);
 	pci_clear_master(pdev);
 	/* Don't fail the probe for these errors, keep
 	 * the hw interface around for inspection
@@ -353,6 +359,7 @@ err_out_teardown:
 
 err_out_unmap_bars:
 	ionic_unmap_bars(ionic);
+err_out_pci_release_regions:
 	pci_release_regions(pdev);
 err_out_pci_disable_device:
 	pci_disable_device(pdev);
@@ -368,9 +375,6 @@ err_out_clear_drvdata:
 static void ionic_remove(struct pci_dev *pdev)
 {
 	struct ionic *ionic = pci_get_drvdata(pdev);
-
-	if (!ionic)
-		return;
 
 	del_timer_sync(&ionic->watchdog_timer);
 

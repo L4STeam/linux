@@ -1059,7 +1059,7 @@ static struct snd_soc_dai_driver da7210_dai = {
 		.formats = DA7210_FORMATS,
 	},
 	.ops = &da7210_dai_ops,
-	.symmetric_rates = 1,
+	.symmetric_rate = 1,
 };
 
 static int da7210_probe(struct snd_soc_component *component)
@@ -1336,6 +1336,8 @@ static int __init da7210_modinit(void)
 	int ret = 0;
 #if IS_ENABLED(CONFIG_I2C)
 	ret = i2c_add_driver(&da7210_i2c_driver);
+	if (ret)
+		return ret;
 #endif
 #if defined(CONFIG_SPI_MASTER)
 	ret = spi_register_driver(&da7210_spi_driver);

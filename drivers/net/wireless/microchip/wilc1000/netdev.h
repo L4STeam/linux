@@ -197,6 +197,14 @@ struct wilc_vif {
 	struct cfg80211_bss *bss;
 };
 
+struct wilc_tx_queue_status {
+	u8 buffer[AC_BUFFER_SIZE];
+	u16 end_index;
+	u16 cnt[NQUEUES];
+	u16 sum;
+	bool initialized;
+};
+
 struct wilc {
 	struct wiphy *wiphy;
 	const struct wilc_hif_func *hif_func;
@@ -244,10 +252,12 @@ struct wilc {
 	u8 *rx_buffer;
 	u32 rx_buffer_offset;
 	u8 *tx_buffer;
+	u32 *vmm_table;
 
-	struct txq_entry_t txq_head;
+	struct txq_handle txq[NQUEUES];
 	int txq_entries;
 
+	struct wilc_tx_queue_status tx_q_limit;
 	struct rxq_entry_t rxq_head;
 
 	const struct firmware *firmware;

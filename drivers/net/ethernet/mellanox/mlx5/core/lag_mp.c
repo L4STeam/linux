@@ -9,18 +9,21 @@
 #include "eswitch.h"
 #include "lib/mlx5.h"
 
+static bool __mlx5_lag_is_multipath(struct mlx5_lag *ldev)
+{
+	return !!(ldev->flags & MLX5_LAG_FLAG_MULTIPATH);
+}
+
 static bool mlx5_lag_multipath_check_prereq(struct mlx5_lag *ldev)
 {
 	if (!mlx5_lag_is_ready(ldev))
 		return false;
 
+	if (__mlx5_lag_is_active(ldev) && !__mlx5_lag_is_multipath(ldev))
+		return false;
+
 	return mlx5_esw_multipath_prereq(ldev->pf[MLX5_LAG_P1].dev,
 					 ldev->pf[MLX5_LAG_P2].dev);
-}
-
-static bool __mlx5_lag_is_multipath(struct mlx5_lag *ldev)
-{
-	return !!(ldev->flags & MLX5_LAG_FLAG_MULTIPATH);
 }
 
 bool mlx5_lag_is_multipath(struct mlx5_core_dev *dev)
@@ -28,14 +31,14 @@ bool mlx5_lag_is_multipath(struct mlx5_core_dev *dev)
 	struct mlx5_lag *ldev;
 	bool res;
 
-	ldev = mlx5_lag_dev_get(dev);
+	ldev = mlx5_lag_dev(dev);
 	res  = ldev && __mlx5_lag_is_multipath(ldev);
 
 	return res;
 }
 
 /**
- * Set lag port affinity
+ * mlx5_lag_set_port_affinity
  *
  * @ldev: lag device
  * @port:
@@ -97,6 +100,14 @@ static void mlx5_lag_fib_event_flush(struct notifier_block *nb)
 	flush_workqueue(mp->wq);
 }
 
+static void mlx5_lag_fib_set(struct lag_mp *mp, struct fib_info *fi, u32 dst, int dst_len)
+{
+	mp->fib.mfi = fi;
+	mp->fib.priority = fi->fib_priority;
+	mp->fib.dst = dst;
+	mp->fib.dst_len = dst_len;
+}
+
 struct mlx5_fib_event_work {
 	struct work_struct work;
 	struct mlx5_lag *ldev;
@@ -107,10 +118,10 @@ struct mlx5_fib_event_work {
 	};
 };
 
-static void mlx5_lag_fib_route_event(struct mlx5_lag *ldev,
-				     unsigned long event,
-				     struct fib_info *fi)
+static void mlx5_lag_fib_route_event(struct mlx5_lag *ldev, unsigned long event,
+				     struct fib_entry_notifier_info *fen_info)
 {
+	struct fib_info *fi = fen_info->fi;
 	struct lag_mp *mp = &ldev->lag_mp;
 	struct fib_nh *fib_nh0, *fib_nh1;
 	unsigned int nhs;
@@ -118,10 +129,16 @@ static void mlx5_lag_fib_route_event(struct mlx5_lag *ldev,
 	/* Handle delete event */
 	if (event == FIB_EVENT_ENTRY_DEL) {
 		/* stop track */
-		if (mp->mfi == fi)
-			mp->mfi = NULL;
+		if (mp->fib.mfi == fi)
+			mp->fib.mfi = NULL;
 		return;
 	}
+
+	/* Handle multipath entry with lower priority value */
+	if (mp->fib.mfi && mp->fib.mfi != fi &&
+	    (mp->fib.dst != fen_info->dst || mp->fib.dst_len != fen_info->dst_len) &&
+	    fi->fib_priority >= mp->fib.priority)
+		return;
 
 	/* Handle add/replace event */
 	nhs = fib_info_num_path(fi);
@@ -132,12 +149,13 @@ static void mlx5_lag_fib_route_event(struct mlx5_lag *ldev,
 			int i = mlx5_lag_dev_get_netdev_idx(ldev, nh_dev);
 
 			if (i < 0)
-				i = MLX5_LAG_NORMAL_AFFINITY;
-			else
-				++i;
+				return;
 
+			i++;
 			mlx5_lag_set_port_affinity(ldev, i);
+			mlx5_lag_fib_set(mp, fi, fen_info->dst, fen_info->dst_len);
 		}
+
 		return;
 	}
 
@@ -157,15 +175,15 @@ static void mlx5_lag_fib_route_event(struct mlx5_lag *ldev,
 	}
 
 	/* First time we see multipath route */
-	if (!mp->mfi && !__mlx5_lag_is_active(ldev)) {
+	if (!mp->fib.mfi && !__mlx5_lag_is_active(ldev)) {
 		struct lag_tracker tracker;
 
 		tracker = ldev->tracker;
-		mlx5_activate_lag(ldev, &tracker, MLX5_LAG_FLAG_MULTIPATH);
+		mlx5_activate_lag(ldev, &tracker, MLX5_LAG_FLAG_MULTIPATH, false);
 	}
 
 	mlx5_lag_set_port_affinity(ldev, MLX5_LAG_NORMAL_AFFINITY);
-	mp->mfi = fi;
+	mlx5_lag_fib_set(mp, fi, fen_info->dst, fen_info->dst_len);
 }
 
 static void mlx5_lag_fib_nexthop_event(struct mlx5_lag *ldev,
@@ -176,7 +194,7 @@ static void mlx5_lag_fib_nexthop_event(struct mlx5_lag *ldev,
 	struct lag_mp *mp = &ldev->lag_mp;
 
 	/* Check the nh event is related to the route */
-	if (!mp->mfi || mp->mfi != fi)
+	if (!mp->fib.mfi || mp->fib.mfi != fi)
 		return;
 
 	/* nh added/removed */
@@ -206,7 +224,7 @@ static void mlx5_lag_fib_update(struct work_struct *work)
 	case FIB_EVENT_ENTRY_REPLACE:
 	case FIB_EVENT_ENTRY_DEL:
 		mlx5_lag_fib_route_event(ldev, fib_work->event,
-					 fib_work->fen_info.fi);
+					 &fib_work->fen_info);
 		fib_info_put(fib_work->fen_info.fi);
 		break;
 	case FIB_EVENT_NH_ADD:
@@ -265,10 +283,8 @@ static int mlx5_lag_fib_event(struct notifier_block *nb,
 		fen_info = container_of(info, struct fib_entry_notifier_info,
 					info);
 		fi = fen_info->fi;
-		if (fi->nh) {
-			NL_SET_ERR_MSG_MOD(info->extack, "IPv4 route with nexthop objects is not supported");
-			return notifier_from_errno(-EINVAL);
-		}
+		if (fi->nh)
+			return NOTIFY_DONE;
 		fib_dev = fib_info_nh(fen_info->fi, 0)->fib_nh_dev;
 		if (fib_dev != ldev->pf[MLX5_LAG_P1].netdev &&
 		    fib_dev != ldev->pf[MLX5_LAG_P2].netdev) {
@@ -302,10 +318,23 @@ static int mlx5_lag_fib_event(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+void mlx5_lag_mp_reset(struct mlx5_lag *ldev)
+{
+	/* Clear mfi, as it might become stale when a route delete event
+	 * has been missed, see mlx5_lag_fib_route_event().
+	 */
+	ldev->lag_mp.fib.mfi = NULL;
+}
+
 int mlx5_lag_mp_init(struct mlx5_lag *ldev)
 {
 	struct lag_mp *mp = &ldev->lag_mp;
 	int err;
+
+	/* always clear mfi, as it might become stale when a route delete event
+	 * has been missed
+	 */
+	mp->fib.mfi = NULL;
 
 	if (mp->fib_nb.notifier_call)
 		return 0;
@@ -335,4 +364,5 @@ void mlx5_lag_mp_cleanup(struct mlx5_lag *ldev)
 	unregister_fib_notifier(&init_net, &mp->fib_nb);
 	destroy_workqueue(mp->wq);
 	mp->fib_nb.notifier_call = NULL;
+	mp->fib.mfi = NULL;
 }

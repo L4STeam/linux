@@ -521,6 +521,15 @@ _start:
 	l.ori	r3,r0,0x1
 	l.mtspr	r0,r3,SPR_SR
 
+	/*
+	 * Start the TTCR as early as possible, so that the RNG can make use of
+	 * measurements of boot time from the earliest opportunity. Especially
+	 * important is that the TTCR does not return zero by the time we reach
+	 * rand_initialize().
+	 */
+	l.movhi r3,hi(SPR_TTMR_CR)
+	l.mtspr r0,r3,SPR_TTMR
+
 	CLEAR_GPR(r1)
 	CLEAR_GPR(r2)
 	CLEAR_GPR(r3)
@@ -599,7 +608,7 @@ flush_tlb:
 	l.jal	_flush_tlb
 	 l.nop
 
-/* The MMU needs to be enabled before or32_early_setup is called */
+/* The MMU needs to be enabled before or1k_early_setup is called */
 
 enable_mmu:
 	/*
@@ -641,9 +650,9 @@ enable_mmu:
 	/* magic number mismatch, set fdt pointer to null */
 	l.or	r25,r0,r0
 _fdt_found:
-	/* pass fdt pointer to or32_early_setup in r3 */
+	/* pass fdt pointer to or1k_early_setup in r3 */
 	l.or	r3,r0,r25
-	LOAD_SYMBOL_2_GPR(r24, or32_early_setup)
+	LOAD_SYMBOL_2_GPR(r24, or1k_early_setup)
 	l.jalr r24
 	 l.nop
 

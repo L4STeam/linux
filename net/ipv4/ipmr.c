@@ -261,7 +261,9 @@ static int __net_init ipmr_rules_init(struct net *net)
 	return 0;
 
 err2:
+	rtnl_lock();
 	ipmr_free_table(mrt);
+	rtnl_unlock();
 err1:
 	fib_rules_unregister(ops);
 	return err;
@@ -1317,7 +1319,7 @@ static void mroute_clean_tables(struct mr_table *mrt, int flags)
 }
 
 /* called from ip_ra_control(), before an RCU grace period,
- * we dont need to call synchronize_rcu() here
+ * we don't need to call synchronize_rcu() here
  */
 static void mrtsock_destruct(struct sock *sk)
 {
@@ -1938,7 +1940,7 @@ static void ip_mr_forward(struct net *net, struct mr_table *mrt,
 	if (c->mfc_origin == htonl(INADDR_ANY) && true_vifi >= 0) {
 		struct mfc_cache *cache_proxy;
 
-		/* For an (*,G) entry, we only check that the incomming
+		/* For an (*,G) entry, we only check that the incoming
 		 * interface is part of the static tree.
 		 */
 		cache_proxy = mr_mfc_find_any_parent(mrt, vif);
@@ -2119,7 +2121,7 @@ int ip_mr_input(struct sk_buff *skb)
 				raw_rcv(mroute_sk, skb);
 				return 0;
 			}
-		    }
+		}
 	}
 
 	/* already under rcu_read_lock() */
@@ -3007,7 +3009,6 @@ static const struct seq_operations ipmr_mfc_seq_ops = {
 #ifdef CONFIG_IP_PIMSM_V2
 static const struct net_protocol pim_protocol = {
 	.handler	=	pim_rcv,
-	.netns_ok	=	1,
 };
 #endif
 

@@ -59,7 +59,9 @@ DECLARE_STATIC_KEY_FALSE(enable_evmcs);
 	 SECONDARY_EXEC_SHADOW_VMCS |					\
 	 SECONDARY_EXEC_TSC_SCALING |					\
 	 SECONDARY_EXEC_PAUSE_LOOP_EXITING)
-#define EVMCS1_UNSUPPORTED_VMEXIT_CTRL (VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL)
+#define EVMCS1_UNSUPPORTED_VMEXIT_CTRL					\
+	(VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL |				\
+	 VM_EXIT_SAVE_VMX_PREEMPTION_TIMER)
 #define EVMCS1_UNSUPPORTED_VMENTRY_CTRL (VM_ENTRY_LOAD_IA32_PERF_GLOBAL_CTRL)
 #define EVMCS1_UNSUPPORTED_VMFUNC (VMX_VMFUNC_EPTP_SWITCHING)
 
@@ -72,8 +74,6 @@ struct evmcs_field {
 
 extern const struct evmcs_field vmcs_field_to_evmcs_1[];
 extern const unsigned int nr_evmcs_1_fields;
-
-#define ROL16(val, n) ((u16)(((u16)(val) << (n)) | ((u16)(val) >> (16 - (n)))))
 
 static __always_inline int get_evmcs_offset(unsigned long field,
 					    u16 *clean_field)
@@ -94,8 +94,6 @@ static __always_inline int get_evmcs_offset(unsigned long field,
 
 	return evmcs_field->offset;
 }
-
-#undef ROL16
 
 static inline void evmcs_write64(unsigned long field, u64 value)
 {
@@ -196,6 +194,14 @@ static inline u16 evmcs_read16(unsigned long field) { return 0; }
 static inline void evmcs_load(u64 phys_addr) {}
 static inline void evmcs_touch_msr_bitmap(void) {}
 #endif /* IS_ENABLED(CONFIG_HYPERV) */
+
+#define EVMPTR_INVALID (-1ULL)
+#define EVMPTR_MAP_PENDING (-2ULL)
+
+static inline bool evmptr_is_valid(u64 evmptr)
+{
+	return evmptr != EVMPTR_INVALID && evmptr != EVMPTR_MAP_PENDING;
+}
 
 enum nested_evmptrld_status {
 	EVMPTRLD_DISABLED,

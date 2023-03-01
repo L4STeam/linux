@@ -1739,9 +1739,10 @@ static int tegra_i2c_probe(struct platform_device *pdev)
 	/* interrupt will be enabled during of transfer time */
 	irq_set_status_flags(i2c_dev->irq, IRQ_NOAUTOEN);
 
-	err = devm_request_irq(i2c_dev->dev, i2c_dev->irq, tegra_i2c_isr,
-			       IRQF_NO_SUSPEND, dev_name(i2c_dev->dev),
-			       i2c_dev);
+	err = devm_request_threaded_irq(i2c_dev->dev, i2c_dev->irq,
+					NULL, tegra_i2c_isr,
+					IRQF_NO_SUSPEND | IRQF_ONESHOT,
+					dev_name(i2c_dev->dev), i2c_dev);
 	if (err)
 		return err;
 

@@ -29,6 +29,7 @@ enum rtrs_clt_state {
 enum rtrs_mp_policy {
 	MP_POLICY_RR,
 	MP_POLICY_MIN_INFLIGHT,
+	MP_POLICY_MIN_LATENCY,
 };
 
 /* see Documentation/ABI/testing/sysfs-class-rtrs-client for details */
@@ -70,9 +71,9 @@ struct rtrs_clt_stats {
 struct rtrs_clt_con {
 	struct rtrs_con	c;
 	struct rtrs_iu		*rsp_ius;
-	u32			queue_size;
+	u32			queue_num;
 	unsigned int		cpu;
-	atomic_t		io_cnt;
+	struct mutex		con_mutex;
 	int			cm_err;
 };
 
@@ -100,6 +101,7 @@ struct rtrs_clt_io_req {
 	unsigned int		usr_len;
 	void			*priv;
 	bool			in_use;
+	enum rtrs_mp_policy     mp_policy;
 	struct rtrs_clt_con	*con;
 	struct rtrs_sg_desc	*desc;
 	struct ib_sge		*sge;
@@ -114,6 +116,7 @@ struct rtrs_clt_io_req {
 	int			inv_errno;
 	bool			need_inv_comp;
 	bool			need_inv;
+	refcount_t		ref;
 };
 
 struct rtrs_rbuf {
@@ -121,8 +124,8 @@ struct rtrs_rbuf {
 	u32 rkey;
 };
 
-struct rtrs_clt_sess {
-	struct rtrs_sess	s;
+struct rtrs_clt_path {
+	struct rtrs_path	s;
 	struct rtrs_clt	*clt;
 	wait_queue_head_t	state_wq;
 	enum rtrs_clt_state	state;
@@ -139,7 +142,6 @@ struct rtrs_clt_sess {
 	u32			chunk_size;
 	size_t			queue_depth;
 	u32			max_pages_per_mr;
-	int			max_send_sge;
 	u32			flags;
 	struct kobject		kobj;
 	u8			for_new_clt;
@@ -154,7 +156,7 @@ struct rtrs_clt_sess {
 struct rtrs_clt {
 	struct list_head	paths_list; /* rcu protected list */
 	size_t			paths_num;
-	struct rtrs_clt_sess
+	struct rtrs_clt_path
 	__rcu * __percpu	*pcpu_path;
 	uuid_t			paths_uuid;
 	int			paths_up;
@@ -165,7 +167,6 @@ struct rtrs_clt {
 	unsigned int		max_reconnect_attempts;
 	unsigned int		reconnect_delay_sec;
 	unsigned int		max_segments;
-	size_t			max_segment_size;
 	void			*permits;
 	unsigned long		*permits_map;
 	size_t			queue_depth;
@@ -185,9 +186,9 @@ static inline struct rtrs_clt_con *to_clt_con(struct rtrs_con *c)
 	return container_of(c, struct rtrs_clt_con, c);
 }
 
-static inline struct rtrs_clt_sess *to_clt_sess(struct rtrs_sess *s)
+static inline struct rtrs_clt_path *to_clt_path(struct rtrs_path *s)
 {
-	return container_of(s, struct rtrs_clt_sess, s);
+	return container_of(s, struct rtrs_clt_path, s);
 }
 
 static inline int permit_size(struct rtrs_clt *clt)
@@ -200,16 +201,16 @@ static inline struct rtrs_permit *get_permit(struct rtrs_clt *clt, int idx)
 	return (struct rtrs_permit *)(clt->permits + permit_size(clt) * idx);
 }
 
-int rtrs_clt_reconnect_from_sysfs(struct rtrs_clt_sess *sess);
-int rtrs_clt_disconnect_from_sysfs(struct rtrs_clt_sess *sess);
+int rtrs_clt_reconnect_from_sysfs(struct rtrs_clt_path *path);
+void rtrs_clt_close_conns(struct rtrs_clt_path *clt_path, bool wait);
 int rtrs_clt_create_path_from_sysfs(struct rtrs_clt *clt,
 				     struct rtrs_addr *addr);
-int rtrs_clt_remove_path_from_sysfs(struct rtrs_clt_sess *sess,
+int rtrs_clt_remove_path_from_sysfs(struct rtrs_clt_path *path,
 				     const struct attribute *sysfs_self);
 
 void rtrs_clt_set_max_reconnect_attempts(struct rtrs_clt *clt, int value);
 int rtrs_clt_get_max_reconnect_attempts(const struct rtrs_clt *clt);
-void free_sess(struct rtrs_clt_sess *sess);
+void free_path(struct rtrs_clt_path *clt_path);
 
 /* rtrs-clt-stats.c */
 
@@ -229,10 +230,7 @@ int rtrs_clt_stats_migration_cnt_to_str(struct rtrs_clt_stats *stats, char *buf,
 					 size_t len);
 int rtrs_clt_reset_reconnects_stat(struct rtrs_clt_stats *stats, bool enable);
 int rtrs_clt_stats_reconnects_to_str(struct rtrs_clt_stats *stats, char *buf,
-				      size_t len);
-int rtrs_clt_reset_wc_comp_stats(struct rtrs_clt_stats *stats, bool enable);
-int rtrs_clt_stats_wc_completion_to_str(struct rtrs_clt_stats *stats, char *buf,
-					 size_t len);
+				     size_t len);
 int rtrs_clt_reset_rdma_stats(struct rtrs_clt_stats *stats, bool enable);
 ssize_t rtrs_clt_stats_rdma_to_str(struct rtrs_clt_stats *stats,
 				    char *page, size_t len);
@@ -243,11 +241,10 @@ ssize_t rtrs_clt_reset_all_help(struct rtrs_clt_stats *stats,
 /* rtrs-clt-sysfs.c */
 
 int rtrs_clt_create_sysfs_root_files(struct rtrs_clt *clt);
-void rtrs_clt_destroy_sysfs_root_folders(struct rtrs_clt *clt);
-void rtrs_clt_destroy_sysfs_root_files(struct rtrs_clt *clt);
+void rtrs_clt_destroy_sysfs_root(struct rtrs_clt *clt);
 
-int rtrs_clt_create_sess_files(struct rtrs_clt_sess *sess);
-void rtrs_clt_destroy_sess_files(struct rtrs_clt_sess *sess,
+int rtrs_clt_create_path_files(struct rtrs_clt_path *clt_path);
+void rtrs_clt_destroy_path_files(struct rtrs_clt_path *clt_path,
 				  const struct attribute *sysfs_self);
 
 #endif /* RTRS_CLT_H */

@@ -734,12 +734,15 @@ static irqreturn_t sc16is7xx_irq(int irq, void *dev_id)
 static void sc16is7xx_tx_proc(struct kthread_work *ws)
 {
 	struct uart_port *port = &(to_sc16is7xx_one(ws, tx_work)->port);
+	struct sc16is7xx_port *s = dev_get_drvdata(port->dev);
 
 	if ((port->rs485.flags & SER_RS485_ENABLED) &&
 	    (port->rs485.delay_rts_before_send > 0))
 		msleep(port->rs485.delay_rts_before_send);
 
+	mutex_lock(&s->efr_lock);
 	sc16is7xx_handle_tx(port);
+	mutex_unlock(&s->efr_lock);
 }
 
 static void sc16is7xx_reconf_rs485(struct uart_port *port)
@@ -1196,7 +1199,7 @@ static int sc16is7xx_probe(struct device *dev,
 	ret = regmap_read(regmap,
 			  SC16IS7XX_LSR_REG << SC16IS7XX_REG_SHIFT, &val);
 	if (ret < 0)
-		return ret;
+		return -EPROBE_DEFER;
 
 	/* Alloc port structure */
 	s = devm_kzalloc(dev, struct_size(s, p, devtype->nr_uart), GFP_KERNEL);
@@ -1208,8 +1211,16 @@ static int sc16is7xx_probe(struct device *dev,
 	/* Always ask for fixed clock rate from a property. */
 	device_property_read_u32(dev, "clock-frequency", &uartclk);
 
-	s->clk = devm_clk_get(dev, NULL);
-	if (IS_ERR(s->clk)) {
+	s->clk = devm_clk_get_optional(dev, NULL);
+	if (IS_ERR(s->clk))
+		return PTR_ERR(s->clk);
+
+	ret = clk_prepare_enable(s->clk);
+	if (ret)
+		return ret;
+
+	freq = clk_get_rate(s->clk);
+	if (freq == 0) {
 		if (uartclk)
 			freq = uartclk;
 		if (pfreq)
@@ -1217,13 +1228,7 @@ static int sc16is7xx_probe(struct device *dev,
 		if (freq)
 			dev_dbg(dev, "Clock frequency: %luHz\n", freq);
 		else
-			return PTR_ERR(s->clk);
-	} else {
-		ret = clk_prepare_enable(s->clk);
-		if (ret)
-			return ret;
-
-		freq = clk_get_rate(s->clk);
+			return -EINVAL;
 	}
 
 	s->regmap = regmap;
@@ -1358,8 +1363,7 @@ out_thread:
 	kthread_stop(s->kworker_task);
 
 out_clk:
-	if (!IS_ERR(s->clk))
-		clk_disable_unprepare(s->clk);
+	clk_disable_unprepare(s->clk);
 
 	return ret;
 }
@@ -1383,8 +1387,7 @@ static int sc16is7xx_remove(struct device *dev)
 	kthread_flush_worker(&s->kworker);
 	kthread_stop(s->kworker_task);
 
-	if (!IS_ERR(s->clk))
-		clk_disable_unprepare(s->clk);
+	clk_disable_unprepare(s->clk);
 
 	return 0;
 }

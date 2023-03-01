@@ -84,7 +84,7 @@ struct audit_fsnotify_mark *audit_alloc_mark(struct audit_krule *krule, char *pa
 
 	dentry = kern_path_locked(pathname, &path);
 	if (IS_ERR(dentry))
-		return (void *)dentry; /* returning an error */
+		return ERR_CAST(dentry); /* returning an error */
 	inode = path.dentry->d_inode;
 	inode_unlock(inode);
 
@@ -102,6 +102,7 @@ struct audit_fsnotify_mark *audit_alloc_mark(struct audit_krule *krule, char *pa
 
 	ret = fsnotify_add_inode_mark(&audit_mark->mark, inode, true);
 	if (ret < 0) {
+		audit_mark->path = NULL;
 		fsnotify_put_mark(&audit_mark->mark);
 		audit_mark = ERR_PTR(ret);
 	}

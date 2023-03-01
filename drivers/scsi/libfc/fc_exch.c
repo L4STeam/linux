@@ -20,7 +20,6 @@
 #include <scsi/fc/fc_fc2.h>
 
 #include <scsi/libfc.h>
-#include <scsi/fc_encode.h>
 
 #include "fc_libfc.h"
 
@@ -272,7 +271,7 @@ static void fc_exch_setup_hdr(struct fc_exch *ep, struct fc_frame *fp,
 
 	if (f_ctl & FC_FC_END_SEQ) {
 		fr_eof(fp) = FC_EOF_T;
-		if (fc_sof_needs_ack(ep->class))
+		if (fc_sof_needs_ack((enum fc_sof)ep->class))
 			fr_eof(fp) = FC_EOF_N;
 		/*
 		 * From F_CTL.
@@ -1702,6 +1701,7 @@ static void fc_exch_abts_resp(struct fc_exch *ep, struct fc_frame *fp)
 	if (cancel_delayed_work_sync(&ep->timeout_work)) {
 		FC_EXCH_DBG(ep, "Exchange timer canceled due to ABTS response\n");
 		fc_exch_release(ep);	/* release from pending timer hold */
+		return;
 	}
 
 	spin_lock_bh(&ep->ex_lock);

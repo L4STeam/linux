@@ -100,7 +100,8 @@ enum vsc_packet_revision {
 //PB7 = MD0
 #define MASK_VTEM_MD0__VRR_EN         0x01
 #define MASK_VTEM_MD0__M_CONST        0x02
-#define MASK_VTEM_MD0__RESERVED2      0x0C
+#define MASK_VTEM_MD0__QMS_EN         0x04
+#define MASK_VTEM_MD0__RESERVED2      0x08
 #define MASK_VTEM_MD0__FVA_FACTOR_M1  0xF0
 
 //MD1
@@ -109,7 +110,7 @@ enum vsc_packet_revision {
 //MD2
 #define MASK_VTEM_MD2__BASE_REFRESH_RATE_98  0x03
 #define MASK_VTEM_MD2__RB                    0x04
-#define MASK_VTEM_MD2__RESERVED3             0xF8
+#define MASK_VTEM_MD2__NEXT_TFR              0xF8
 
 //MD3
 #define MASK_VTEM_MD3__BASE_REFRESH_RATE_07  0xFF
@@ -409,16 +410,11 @@ void mod_build_vsc_infopacket(const struct dc_stream_state *stream,
 }
 
 /**
- *****************************************************************************
- *  Function: mod_build_hf_vsif_infopacket
+ *  mod_build_hf_vsif_infopacket - Prepare HDMI Vendor Specific info frame.
+ *                                 Follows HDMI Spec to build up Vendor Specific info frame
  *
- *  @brief
- *     Prepare HDMI Vendor Specific info frame.
- *     Follows HDMI Spec to build up Vendor Specific info frame
- *
- *  @param [in] stream: contains data we may need to construct VSIF (i.e. timing_3d_format, etc.)
- *  @param [out] info_packet:   output structure where to store VSIF
- *****************************************************************************
+ *  @stream:      contains data we may need to construct VSIF (i.e. timing_3d_format, etc.)
+ *  @info_packet: output structure where to store VSIF
  */
 void mod_build_hf_vsif_infopacket(const struct dc_stream_state *stream,
 		struct dc_info_packet *info_packet)

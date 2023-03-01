@@ -299,7 +299,7 @@ static DEVICE_ATTR(fan1_target, 0644, fan1_input_show, set_rpm);
 static umode_t gpio_fan_is_visible(struct kobject *kobj,
 				   struct attribute *attr, int index)
 {
-	struct device *dev = container_of(kobj, struct device, kobj);
+	struct device *dev = kobj_to_dev(kobj);
 	struct gpio_fan_data *data = dev_get_drvdata(dev);
 
 	if (index == 0 && !data->alarm_gpio)
@@ -389,6 +389,9 @@ static int gpio_fan_set_cur_state(struct thermal_cooling_device *cdev,
 	struct gpio_fan_data *fan_data = cdev->devdata;
 
 	if (!fan_data)
+		return -EINVAL;
+
+	if (state >= fan_data->num_speed)
 		return -EINVAL;
 
 	set_fan_speed(fan_data, state);
