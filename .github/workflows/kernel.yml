@@ -13,7 +13,7 @@ jobs:
         sudo env DEBIAN_FRONTEND=noninteractive apt-get -y purge unattended-upgrades
         sudo env DEBIAN_FRONTEND=noninteractive apt-get -y update
         sudo env DEBIAN_FRONTEND=noninteractive apt-get -y install git fakeroot \
-            libelf-dev libssl-dev flex bison coreutils build-essential openssl\
+            libelf-dev libssl-dev flex bison coreutils build-essential libssl-dev openssl\
             xz-utils devscripts initramfs-tools wget linux-headers-5.15.0-60-generic
     - name: Kernel config
       run: |
