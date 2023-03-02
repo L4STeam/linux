@@ -1465,10 +1465,6 @@ out_no_maps:
 	bitmap_free(mask);
 
 	return len < PAGE_SIZE ? len : -EINVAL;
-
-err_rtnl_unlock:
-	rtnl_unlock();
-	return ret;
 }
 
 static ssize_t xps_cpus_show(struct netdev_queue *queue, char *buf)
@@ -1547,7 +1543,6 @@ static struct netdev_queue_attribute xps_cpus_attribute __ro_after_init
 
 static ssize_t xps_rxqs_show(struct netdev_queue *queue, char *buf)
 {
-	int j, len, ret, num_tc = 1, tc = 0;
 	struct net_device *dev = queue->dev;
 	unsigned int index;
 	int tc;

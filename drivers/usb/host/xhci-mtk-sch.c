@@ -447,7 +447,6 @@ static void update_bus_bw(struct mu3h_sch_bw_info *sch_bw,
 				sch_bw->bus_bw[k] -= sch_ep->bw_budget_table[j];
 		}
 	}
-	sch_ep->allocated = used;
 }
 
 static int check_fs_bus_bw(struct mu3h_sch_ep_info *sch_ep, int offset)

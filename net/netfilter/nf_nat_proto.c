@@ -715,23 +715,6 @@ nf_nat_ipv4_local_in(void *priv, struct sk_buff *skb,
 }
 
 static unsigned int
-nf_nat_ipv4_local_in(void *priv, struct sk_buff *skb,
-		     const struct nf_hook_state *state)
-{
-	__be32 saddr = ip_hdr(skb)->saddr;
-	struct sock *sk = skb->sk;
-	unsigned int ret;
-
-	ret = nf_nat_ipv4_fn(priv, skb, state);
-
-	if (ret == NF_ACCEPT && sk && saddr != ip_hdr(skb)->saddr &&
-	    !inet_sk_transparent(sk))
-		skb_orphan(skb); /* TCP edemux obtained wrong socket */
-
-	return ret;
-}
-
-static unsigned int
 nf_nat_ipv4_out(void *priv, struct sk_buff *skb,
 		const struct nf_hook_state *state)
 {

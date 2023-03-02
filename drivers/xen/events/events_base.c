@@ -1921,28 +1921,6 @@ static void lateeoi_mask_ack_dynirq(struct irq_data *data)
 	}
 }
 
-static void lateeoi_ack_dynirq(struct irq_data *data)
-{
-	struct irq_info *info = info_for_irq(data->irq);
-	evtchn_port_t evtchn = info ? info->evtchn : 0;
-
-	if (VALID_EVTCHN(evtchn)) {
-		do_mask(info, EVT_MASK_REASON_EOI_PENDING);
-		ack_dynirq(data);
-	}
-}
-
-static void lateeoi_mask_ack_dynirq(struct irq_data *data)
-{
-	struct irq_info *info = info_for_irq(data->irq);
-	evtchn_port_t evtchn = info ? info->evtchn : 0;
-
-	if (VALID_EVTCHN(evtchn)) {
-		do_mask(info, EVT_MASK_REASON_EXPLICIT);
-		ack_dynirq(data);
-	}
-}
-
 static int retrigger_dynirq(struct irq_data *data)
 {
 	struct irq_info *info = info_for_irq(data->irq);

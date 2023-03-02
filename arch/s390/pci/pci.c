@@ -738,9 +738,9 @@ struct zpci_dev *zpci_create_device(u32 fid, u32 fh, enum zpci_state state)
 	if (rc)
 		goto error_destroy_iommu;
 
-	/* FID and Function Handle are the static/dynamic identifiers */
-	zdev->fid = fid;
-	zdev->fh = fh;
+	spin_lock(&zpci_list_lock);
+	list_add_tail(&zdev->entry, &zpci_list);
+	spin_unlock(&zpci_list_lock);
 
 	return zdev;
 

@@ -2598,16 +2598,6 @@ static int __parse_cls_flower(struct mlx5e_priv *priv,
 		return -EOPNOTSUPP;
 	}
 
-	/* Currenlty supported only for MPLS over UDP */
-	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_MPLS) &&
-	    !netif_is_bareudp(filter_dev)) {
-		NL_SET_ERR_MSG_MOD(extack,
-				   "Matching on MPLS is supported only for MPLS over UDP");
-		netdev_err(priv->netdev,
-			   "Matching on MPLS is supported only for MPLS over UDP\n");
-		return -EOPNOTSUPP;
-	}
-
 	return 0;
 }
 

@@ -1215,8 +1215,6 @@ static u32 *copy_batch(struct drm_i915_gem_object *dst_obj,
 
 	memset32(dst + length, 0, (dst_obj->base.size - length) / sizeof(u32));
 
-	memset32(dst + length, 0, (dst_obj->base.size - length) / sizeof(u32));
-
 	/* dst_obj is returned with vmap pinned */
 	*needs_clflush_after = dst_needs_clflush & CLFLUSH_AFTER;
 

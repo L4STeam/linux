@@ -256,14 +256,6 @@ acpi_ev_address_space_dispatch(union acpi_operand_object *region_obj,
 
 		context_locked = TRUE;
 
-		status =
-		    acpi_os_acquire_mutex(context_mutex, ACPI_WAIT_FOREVER);
-		if (ACPI_FAILURE(status)) {
-			goto re_enter_interpreter;
-		}
-
-		context_locked = TRUE;
-
 		/* Get the Connection (resource_template) buffer */
 
 		context->connection = field_obj->field.resource_buffer;

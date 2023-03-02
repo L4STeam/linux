@@ -1938,14 +1938,6 @@ static void lan743x_rx_update_tail(struct lan743x_rx *rx, int index)
 				  index);
 }
 
-static void lan743x_rx_update_tail(struct lan743x_rx *rx, int index)
-{
-	/* update the tail once per 8 descriptors */
-	if ((index & 7) == 7)
-		lan743x_csr_write(rx->adapter, RX_TAIL(rx->channel_number),
-				  index);
-}
-
 static int lan743x_rx_init_ring_element(struct lan743x_rx *rx, int index,
 					gfp_t gfp)
 {

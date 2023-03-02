@@ -193,15 +193,6 @@ static int hclge_get_ring_chain_from_mbx(
 		}
 	}
 
-	for (i = 0; i < ring_num; i++) {
-		if (req->msg.param[i].tqp_index >= vport->nic.kinfo.rss_size) {
-			dev_err(&hdev->pdev->dev, "tqp index(%u) is out of range(0-%u)\n",
-				req->msg.param[i].tqp_index,
-				vport->nic.kinfo.rss_size - 1);
-			return -EINVAL;
-		}
-	}
-
 	hnae3_set_bit(ring_chain->flag, HNAE3_RING_TYPE_B,
 		      req->msg.param[0].ring_type);
 	ring_chain->tqp_index =

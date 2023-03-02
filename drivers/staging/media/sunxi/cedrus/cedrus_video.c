@@ -500,7 +500,6 @@ static int cedrus_start_streaming(struct vb2_queue *vq, unsigned int count)
 		ret = pm_runtime_resume_and_get(dev->dev);
 		if (ret < 0)
 			goto err_cleanup;
-		}
 
 		if (dev->dec_ops[ctx->current_codec]->start) {
 			ret = dev->dec_ops[ctx->current_codec]->start(ctx);

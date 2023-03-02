@@ -978,8 +978,7 @@ out:
 
 static struct bio *f2fs_grab_read_bio(struct inode *inode, block_t blkaddr,
 				      unsigned nr_pages, unsigned op_flag,
-				      pgoff_t first_idx, bool for_write,
-				      bool for_verity)
+				      pgoff_t first_idx, bool for_write)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	struct bio *bio;
@@ -1032,7 +1031,7 @@ static int f2fs_submit_page_read(struct inode *inode, struct page *page,
 	struct bio *bio;
 
 	bio = f2fs_grab_read_bio(inode, blkaddr, 1, op_flags,
-					page->index, for_write, true);
+					page->index, for_write);
 	if (IS_ERR(bio))
 		return PTR_ERR(bio);
 
@@ -2114,7 +2113,7 @@ submit_and_realloc:
 	if (bio == NULL) {
 		bio = f2fs_grab_read_bio(inode, block_nr, nr_pages,
 				is_readahead ? REQ_RAHEAD : 0, page->index,
-				false, true);
+				false);
 		if (IS_ERR(bio)) {
 			ret = PTR_ERR(bio);
 			bio = NULL;
@@ -2243,6 +2242,7 @@ skip_reading_dnode:
 	for (i = 0; i < cc->nr_cpages; i++) {
 		struct page *page = dic->cpages[i];
 		block_t blkaddr;
+		struct bio_post_read_ctx *ctx;
 
 		blkaddr = from_dnode ? data_blkaddr(dn.inode, dn.node_page,
 					dn.ofs_in_node + i + 1) :
@@ -2267,11 +2267,8 @@ submit_and_realloc:
 		if (!bio) {
 			bio = f2fs_grab_read_bio(inode, blkaddr, nr_pages,
 					is_readahead ? REQ_RAHEAD : 0,
-					page->index, for_write, for_verity);
+					page->index, for_write);
 			if (IS_ERR(bio)) {
-				unsigned int remained = dic->nr_cpages - i;
-				bool release = false;
-
 				ret = PTR_ERR(bio);
 				f2fs_decompress_end_io(dic, ret);
 				f2fs_put_dnode(&dn);

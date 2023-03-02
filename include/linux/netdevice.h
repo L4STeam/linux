@@ -1701,12 +1701,6 @@ enum netdev_ml_priv_type {
 	ML_PRIV_CAN,
 };
 
-/* Specifies the type of the struct net_device::ml_priv pointer */
-enum netdev_ml_priv_type {
-	ML_PRIV_NONE,
-	ML_PRIV_CAN,
-};
-
 /**
  *	struct net_device - The DEVICE structure.
  *

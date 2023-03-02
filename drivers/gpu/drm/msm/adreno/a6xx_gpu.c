@@ -1570,9 +1570,6 @@ static int a6xx_get_timestamp(struct msm_gpu *gpu, uint64_t *value)
 {
 	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
 	struct a6xx_gpu *a6xx_gpu = to_a6xx_gpu(adreno_gpu);
-	static DEFINE_MUTEX(perfcounter_oob);
-
-	mutex_lock(&perfcounter_oob);
 
 	mutex_lock(&a6xx_gpu->gmu.lock);
 

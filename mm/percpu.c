@@ -181,7 +181,7 @@ static LIST_HEAD(pcpu_map_extend_chunks);
  * The number of empty populated pages, protected by pcpu_lock.
  * The reserved chunk doesn't contribute to the count.
  */
-int pcpu_nr_empty_pop_pages[PCPU_NR_CHUNK_TYPES];
+int pcpu_nr_empty_pop_pages;
 
 /*
  * The number of populated pages in use by the allocator, protected by
@@ -1875,7 +1875,7 @@ area_found:
 		mutex_unlock(&pcpu_alloc_mutex);
 	}
 
-	if (pcpu_nr_empty_pop_pages[type] < PCPU_EMPTY_POP_PAGES_LOW)
+	if (pcpu_nr_empty_pop_pages < PCPU_EMPTY_POP_PAGES_LOW)
 		pcpu_schedule_balance_work();
 
 	/* clear the areas and return address relative to base address */
@@ -2064,7 +2064,7 @@ retry_pop:
 		pcpu_atomic_alloc_failed = false;
 	} else {
 		nr_to_pop = clamp(PCPU_EMPTY_POP_PAGES_HIGH -
-				  pcpu_nr_empty_pop_pages[type],
+				  pcpu_nr_empty_pop_pages,
 				  0, PCPU_EMPTY_POP_PAGES_HIGH);
 	}
 
@@ -2768,7 +2768,7 @@ void __init pcpu_setup_first_chunk(const struct pcpu_alloc_info *ai,
 
 	/* link the first chunk in */
 	pcpu_first_chunk = chunk;
-	pcpu_nr_empty_pop_pages[PCPU_CHUNK_ROOT] = pcpu_first_chunk->nr_empty_pop_pages;
+	pcpu_nr_empty_pop_pages = pcpu_first_chunk->nr_empty_pop_pages;
 	pcpu_chunk_relocate(pcpu_first_chunk, -1);
 
 	/* include all regions of the first chunk */

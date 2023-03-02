@@ -159,8 +159,6 @@ static int hl_device_release_ctrl(struct inode *inode, struct file *filp)
 out:
 	put_pid(hpriv->taskpid);
 
-	put_pid(hpriv->taskpid);
-
 	kfree(hpriv);
 
 	return 0;

@@ -649,8 +649,6 @@ static void bpf_skops_write_hdr_opt(struct sock *sk, struct sk_buff *skb,
 }
 #endif
 
-#define NOP_LEFTOVER	((TCPOPT_NOP << 8) | TCPOPT_NOP)
-
 /* Write previously computed TCP options to the packet.
  *
  * Beware: Something in the Internet is very sensitive to the ordering of
@@ -756,7 +754,6 @@ static void tcp_options_write(__be32 *ptr, struct tcp_sock *tp,
 			       (TCPOPT_WINDOW << 16) |
 			       (TCPOLEN_WINDOW << 8) |
 			       opts->ws);
-		leftover_bytes = NOP_LEFTOVER;
 	}
 
 	if (unlikely(opts->num_sack_blocks)) {

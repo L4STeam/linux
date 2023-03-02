@@ -2873,7 +2873,6 @@ SYM_FUNC_START(aesni_xts_encrypt)
 	sub $64, LEN
 	jl .Lxts_enc_1x
 
-.Lxts_enc_loop4:
 	movdqa IV, STATE1
 	movdqu 0x00(INP), IN
 	pxor IN, STATE1

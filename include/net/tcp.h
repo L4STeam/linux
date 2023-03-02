@@ -194,8 +194,6 @@ void tcp_time_wait(struct sock *sk, int state, int timeo);
 /* Magic number to be after the option value for sharing TCP
  * experimental options. See draft-ietf-tcpm-experimental-options-00.txt
  */
-#define TCPOPT_ACCECN0_MAGIC	0xACC0
-#define TCPOPT_ACCECN1_MAGIC	0xACC1
 #define TCPOPT_FASTOPEN_MAGIC	0xF989
 #define TCPOPT_SMC_MAGIC	0xE2D4C3D9
 
@@ -212,7 +210,6 @@ void tcp_time_wait(struct sock *sk, int state, int timeo);
 #define TCPOLEN_ACCECN_BASE    2
 #define TCPOLEN_EXP_FASTOPEN_BASE  4
 #define TCPOLEN_EXP_SMC_BASE   6
-#define TCPOLEN_EXP_ACCECN_BASE 4
 
 /* But this is what stacks really send out. */
 #define TCPOLEN_TSTAMP_ALIGNED		12

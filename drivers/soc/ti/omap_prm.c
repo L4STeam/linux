@@ -847,7 +847,6 @@ static int omap_reset_deassert(struct reset_controller_dev *rcdev,
 
 	if (reset->clkdm)
 		pdata->clkdm_allow_idle(reset->clkdm);
-	}
 
 	return ret;
 }

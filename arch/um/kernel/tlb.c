@@ -125,9 +125,6 @@ static int add_mmap(unsigned long virt, unsigned long phys, unsigned long len,
 	struct host_vm_op *last;
 	int fd = -1, ret = 0;
 
-	if (virt + len > STUB_START && virt < STUB_END)
-		return -EINVAL;
-
 	if (hvc->userspace)
 		fd = phys_mapping(phys, &offset);
 	else
@@ -191,9 +188,6 @@ static int add_mprotect(unsigned long addr, unsigned long len,
 {
 	struct host_vm_op *last;
 	int ret = 0;
-
-	if (addr + len > STUB_START && addr < STUB_END)
-		return -EINVAL;
 
 	if (hvc->index != 0) {
 		last = &hvc->ops[hvc->index - 1];

@@ -3986,16 +3986,6 @@ static inline bool ib_uses_virt_dma(struct ib_device *dev)
 	return IS_ENABLED(CONFIG_INFINIBAND_VIRT_DMA) && !dev->dma_device;
 }
 
-/*
- * Drivers that don't need a DMA mapping at the RDMA layer, set dma_device to
- * NULL. This causes the ib_dma* helpers to just stash the kernel virtual
- * address into the dma address.
- */
-static inline bool ib_uses_virt_dma(struct ib_device *dev)
-{
-	return IS_ENABLED(CONFIG_INFINIBAND_VIRT_DMA) && !dev->dma_device;
-}
-
 /**
  * ib_dma_mapping_error - check a DMA addr for error
  * @dev: The device for which the dma_addr was created

@@ -471,11 +471,6 @@ int idxd_device_init_reset(struct idxd_device *idxd)
 		return -ENXIO;
 	}
 
-	if (idxd_device_is_halted(idxd)) {
-		dev_warn(&idxd->pdev->dev, "Device is HALTED!\n");
-		return -ENXIO;
-	}
-
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.cmd = IDXD_CMD_RESET_DEVICE;
 	dev_dbg(dev, "%s: sending reset for init.\n", __func__);
@@ -500,12 +495,6 @@ static void idxd_cmd_exec(struct idxd_device *idxd, int cmd_code, u32 operand,
 		dev_warn(&idxd->pdev->dev, "Device is HALTED!\n");
 		if (status)
 			*status = IDXD_CMDSTS_HW_ERR;
-		return;
-	}
-
-	if (idxd_device_is_halted(idxd)) {
-		dev_warn(&idxd->pdev->dev, "Device is HALTED!\n");
-		*status = IDXD_CMDSTS_HW_ERR;
 		return;
 	}
 

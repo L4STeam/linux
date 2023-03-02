@@ -404,8 +404,6 @@ static int omap4_keypad_probe(struct platform_device *pdev)
 		/* Ensure device does not raise interrupts */
 		omap4_keypad_stop(keypad_data);
 	}
-	if (error)
-		goto err_pm_disable;
 
 	pm_runtime_mark_last_busy(dev);
 	pm_runtime_put_autosuspend(dev);

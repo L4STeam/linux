@@ -3019,9 +3019,6 @@ iscsi_set_param(struct iscsi_transport *transport, struct iscsi_uevent *ev)
 	if (ev->u.set_param.len > PAGE_SIZE)
 		return -EINVAL;
 
-	if (ev->u.set_param.len > PAGE_SIZE)
-		return -EINVAL;
-
 	session = iscsi_session_lookup(ev->u.set_param.sid);
 	conn = iscsi_conn_lookup(ev->u.set_param.sid, ev->u.set_param.cid);
 	if (!conn || !session)
@@ -3885,7 +3882,6 @@ iscsi_if_recv_msg(struct sk_buff *skb, struct nlmsghdr *nlh, uint32_t *group)
 {
 	int err = 0;
 	u32 portid;
-	u32 pdu_len;
 	struct iscsi_uevent *ev = nlmsg_data(nlh);
 	struct iscsi_transport *transport = NULL;
 	struct iscsi_internal *priv;

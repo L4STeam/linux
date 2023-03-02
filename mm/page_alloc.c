@@ -6755,7 +6755,6 @@ static void __init memmap_init_zone_range(struct zone *zone,
 
 static void __init memmap_init(void)
 {
-	static unsigned long hole_pfn;
 	unsigned long start_pfn, end_pfn;
 	unsigned long hole_pfn = 0;
 	int i, j, zone_id = 0, nid;
@@ -6773,11 +6772,6 @@ static void __init memmap_init(void)
 					       &hole_pfn);
 			zone_id = j;
 		}
-
-		if (hole_pfn < start_pfn)
-			pgcnt += init_unavailable_range(hole_pfn, start_pfn,
-							zone, nid);
-		hole_pfn = end_pfn;
 	}
 
 #ifdef CONFIG_SPARSEMEM

@@ -30,7 +30,6 @@
 #include <linux/input/sparse-keymap.h>
 #include <acpi/video.h>
 
-ACPI_MODULE_NAME(KBUILD_MODNAME);
 MODULE_AUTHOR("Carlos Corbacho");
 MODULE_DESCRIPTION("Acer Laptop WMI Extras Driver");
 MODULE_LICENSE("GPL");
