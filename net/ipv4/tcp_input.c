@@ -447,8 +447,8 @@ static void tcp_ecn_rcv_synack(struct sock *sk, const struct sk_buff *skb,
 	case 0x5:
 		if (tcp_ecn_mode_pending(tp))
 			/* Downgrade from AccECN, or requested initially */
-			//tcp_ecn_mode_set(tp, TCP_ECN_MODE_RFC3168);
-			tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
+			tcp_ecn_mode_set(tp, TCP_ECN_MODE_RFC3168);
+			//tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
 		break;
 	default:
 		tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
@@ -474,8 +474,8 @@ static void tcp_ecn_rcv_syn(struct tcp_sock *tp, const struct tcphdr *th,
 	if (tcp_ecn_mode_pending(tp)) {
 		if (!tcp_accecn_syn_requested(th)) {
 			/* Downgrade to classic ECN feedback */
-			//tcp_ecn_mode_set(tp, TCP_ECN_MODE_RFC3168);
-			tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
+			tcp_ecn_mode_set(tp, TCP_ECN_MODE_RFC3168);
+			//tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
 		} else {
 			tp->syn_ect_rcv = TCP_SKB_CB(skb)->ip_dsfield & INET_ECN_MASK;
 			tp->prev_ecnfield = tp->syn_ect_rcv;
