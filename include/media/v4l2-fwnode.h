@@ -265,9 +265,6 @@ enum v4l2_fwnode_bus_type {
  * The caller is required to initialise all fields of @vep, either with
  * explicitly values, or by zeroing them.
  *
- * The caller is required to initialise all fields of @vep, either with
- * explicitly values, or by zeroing them.
- *
  * The function does not change the V4L2 fwnode endpoint state if it fails.
  *
  * NOTE: This function does not parse "link-frequencies" property as its size is
@@ -318,9 +315,6 @@ void v4l2_fwnode_endpoint_free(struct v4l2_fwnode_endpoint *vep);
  * this case the function will only attempt to parse properties related to this
  * bus, and it will return an error if the value of the "bus-type" property
  * corresponds to a different bus.
- *
- * The caller is required to initialise all fields of @vep, either with
- * explicitly values, or by zeroing them.
  *
  * The caller is required to initialise all fields of @vep, either with
  * explicitly values, or by zeroing them.

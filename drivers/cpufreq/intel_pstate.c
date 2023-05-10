@@ -1894,7 +1894,6 @@ static void intel_pstate_get_cpu_pstates(struct cpudata *cpu)
 		cpu->pstate.max_freq = cpu->pstate.max_pstate * perf_ctl_scaling;
 		cpu->pstate.turbo_freq = cpu->pstate.turbo_pstate * perf_ctl_scaling;
 	}
-	cpu->pstate.max_freq = cpu->pstate.max_pstate * cpu->pstate.scaling;
 
 	if (pstate_funcs.get_aperf_mperf_shift)
 		cpu->aperf_mperf_shift = pstate_funcs.get_aperf_mperf_shift();

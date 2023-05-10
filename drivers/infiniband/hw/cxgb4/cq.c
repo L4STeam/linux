@@ -1017,9 +1017,6 @@ int c4iw_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	if (entries < 1 || entries > ibdev->attrs.max_cqe)
 		return -EINVAL;
 
-	if (entries < 1 || entries > ibdev->attrs.max_cqe)
-		return -EINVAL;
-
 	if (vector >= rhp->rdev.lldi.nciq)
 		return -EINVAL;
 

@@ -2147,20 +2147,6 @@ static int axienet_probe(struct platform_device *pdev)
 		}
 		lp->phylink_config.pcs_poll = true;
 	}
-	if (lp->phy_mode == PHY_INTERFACE_MODE_SGMII ||
-	    lp->phy_mode == PHY_INTERFACE_MODE_1000BASEX) {
-		if (!lp->phy_node) {
-			dev_err(&pdev->dev, "phy-handle required for 1000BaseX/SGMII\n");
-			ret = -EINVAL;
-			goto cleanup_mdio;
-		}
-		lp->pcs_phy = of_mdio_find_device(lp->phy_node);
-		if (!lp->pcs_phy) {
-			ret = -EPROBE_DEFER;
-			goto cleanup_mdio;
-		}
-		lp->phylink_config.pcs_poll = true;
-	}
 
 	lp->phylink_config.dev = &ndev->dev;
 	lp->phylink_config.type = PHYLINK_NETDEV;

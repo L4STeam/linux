@@ -1892,9 +1892,6 @@ static void worker_attach_to_pool(struct worker *worker,
 	if (worker->rescue_wq)
 		set_cpus_allowed_ptr(worker->task, pool->attrs->cpumask);
 
-	if (worker->rescue_wq)
-		set_cpus_allowed_ptr(worker->task, pool->attrs->cpumask);
-
 	list_add_tail(&worker->node, &pool->workers);
 	worker->pool = pool;
 

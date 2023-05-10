@@ -361,14 +361,6 @@ int dsa_master_setup(struct net_device *dev, struct dsa_port *cpu_dp)
 			   "Failed to create a device link to DSA switch %s\n",
 			   dev_name(ds->dev));
 
-	/* The DSA master must use SET_NETDEV_DEV for this to work. */
-	consumer_link = device_link_add(ds->dev, dev->dev.parent,
-					DL_FLAG_AUTOREMOVE_CONSUMER);
-	if (!consumer_link)
-		netdev_err(dev,
-			   "Failed to create a device link to DSA switch %s\n",
-			   dev_name(ds->dev));
-
 	rtnl_lock();
 	ret = dev_set_mtu(dev, mtu);
 	rtnl_unlock();

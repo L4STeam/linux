@@ -162,34 +162,11 @@ int sas_notify_phy_event(struct asd_sas_phy *phy, enum phy_event event,
 	struct asd_sas_event *ev;
 	int ret;
 
-	ev = sas_alloc_event_gfp(phy, gfp_flags);
-	if (!ev)
-		return -ENOMEM;
-
-	return __sas_notify_port_event(phy, event, ev);
-}
-EXPORT_SYMBOL_GPL(sas_notify_port_event_gfp);
-
-int sas_notify_port_event(struct asd_sas_phy *phy, enum port_event event)
-{
-	struct asd_sas_event *ev;
+	BUG_ON(event >= PHY_NUM_EVENTS);
 
 	ev = sas_alloc_event(phy, gfp_flags);
 	if (!ev)
 		return -ENOMEM;
-
-	return __sas_notify_port_event(phy, event, ev);
-}
-EXPORT_SYMBOL_GPL(sas_notify_port_event);
-
-static inline int __sas_notify_phy_event(struct asd_sas_phy *phy,
-					 enum phy_event event,
-					 struct asd_sas_event *ev)
-{
-	struct sas_ha_struct *ha = phy->ha;
-	int ret;
-
-	BUG_ON(event >= PHY_NUM_EVENTS);
 
 	INIT_SAS_EVENT(ev, sas_phy_event_worker, phy, event);
 

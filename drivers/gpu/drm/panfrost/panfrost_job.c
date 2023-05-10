@@ -26,13 +26,6 @@
 #define job_write(dev, reg, data) writel(data, dev->iomem + (reg))
 #define job_read(dev, reg) readl(dev->iomem + (reg))
 
-enum panfrost_queue_status {
-	PANFROST_QUEUE_STATUS_ACTIVE,
-	PANFROST_QUEUE_STATUS_STOPPED,
-	PANFROST_QUEUE_STATUS_STARTING,
-	PANFROST_QUEUE_STATUS_FAULT_PENDING,
-};
-
 struct panfrost_queue_state {
 	struct drm_gpu_scheduler sched;
 	u64 fence_context;
@@ -799,59 +792,6 @@ static irqreturn_t panfrost_job_irq_handler(int irq, void *data)
 	return IRQ_WAKE_THREAD;
 }
 
-static void panfrost_reset(struct work_struct *work)
-{
-	struct panfrost_device *pfdev = container_of(work,
-						     struct panfrost_device,
-						     reset.work);
-	unsigned long flags;
-	unsigned int i;
-	bool cookie;
-
-	cookie = dma_fence_begin_signalling();
-	for (i = 0; i < NUM_JOB_SLOTS; i++) {
-		/*
-		 * We want pending timeouts to be handled before we attempt
-		 * to stop the scheduler. If we don't do that and the timeout
-		 * handler is in flight, it might have removed the bad job
-		 * from the list, and we'll lose this job if the reset handler
-		 * enters the critical section in panfrost_scheduler_stop()
-		 * before the timeout handler.
-		 *
-		 * Timeout is set to MAX_SCHEDULE_TIMEOUT - 1 because we need
-		 * something big enough to make sure the timer will not expire
-		 * before we manage to stop the scheduler, but we can't use
-		 * MAX_SCHEDULE_TIMEOUT because drm_sched_get_cleanup_job()
-		 * considers that as 'timer is not running' and will dequeue
-		 * the job without making sure the timeout handler is not
-		 * running.
-		 */
-		pfdev->js->queue[i].sched.timeout = MAX_SCHEDULE_TIMEOUT - 1;
-		cancel_delayed_work_sync(&pfdev->js->queue[i].sched.work_tdr);
-		panfrost_scheduler_stop(&pfdev->js->queue[i], NULL);
-	}
-
-	/* All timers have been stopped, we can safely reset the pending state. */
-	atomic_set(&pfdev->reset.pending, 0);
-
-	spin_lock_irqsave(&pfdev->js->job_lock, flags);
-	for (i = 0; i < NUM_JOB_SLOTS; i++) {
-		if (pfdev->jobs[i]) {
-			pm_runtime_put_noidle(pfdev->dev);
-			panfrost_devfreq_record_idle(&pfdev->pfdevfreq);
-			pfdev->jobs[i] = NULL;
-		}
-	}
-	spin_unlock_irqrestore(&pfdev->js->job_lock, flags);
-
-	panfrost_device_reset(pfdev);
-
-	for (i = 0; i < NUM_JOB_SLOTS; i++)
-		panfrost_scheduler_start(&pfdev->js->queue[i]);
-
-	dma_fence_end_signalling(cookie);
-}
-
 int panfrost_job_init(struct panfrost_device *pfdev)
 {
 	struct panfrost_job_slot *js;
@@ -864,8 +804,6 @@ int panfrost_job_init(struct panfrost_device *pfdev)
 	 */
 	if (!panfrost_has_hw_feature(pfdev, HW_FEATURE_JOBCHAIN_DISAMBIGUATION))
 		nentries = 1;
-
-	INIT_WORK(&pfdev->reset.work, panfrost_reset);
 
 	pfdev->js = js = devm_kzalloc(pfdev->dev, sizeof(*js), GFP_KERNEL);
 	if (!js)
@@ -893,8 +831,6 @@ int panfrost_job_init(struct panfrost_device *pfdev)
 		return -ENOMEM;
 
 	for (j = 0; j < NUM_JOB_SLOTS; j++) {
-		mutex_init(&js->queue[j].lock);
-
 		js->queue[j].fence_context = dma_fence_context_alloc(1);
 
 		ret = drm_sched_init(&js->queue[j].sched,

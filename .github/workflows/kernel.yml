@@ -75,7 +75,10 @@ jobs:
           unzip iproute2-l4s
           mv -t . iproute2-l4s/*.deb
     - name: Zip artifacts
-      run: zip -r l4s-testing.zip *.deb
+      run: |
+        mkdir debian_build
+        mv *.deb debian_build
+        zip -r l4s-testing.zip debian_build
     - name: Release tip build
       uses: pyTooling/Actions/releaser@main
       with:

@@ -1232,8 +1232,6 @@ static int bcm_iproc_i2c_unreg_slave(struct i2c_client *slave)
 			IE_S_ALL_INTERRUPT_SHIFT);
 	iproc_i2c_wr_reg(iproc_i2c, IE_OFFSET, tmp);
 
-	tasklet_kill(&iproc_i2c->slave_rx_tasklet);
-
 	/* Erase the slave address programmed */
 	tmp = iproc_i2c_rd_reg(iproc_i2c, S_CFG_SMBUS_ADDR_OFFSET);
 	tmp &= ~BIT(S_CFG_EN_NIC_SMB_ADDR3_SHIFT);

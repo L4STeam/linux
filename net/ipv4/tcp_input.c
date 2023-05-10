@@ -2972,7 +2972,6 @@ static void tcp_init_cwnd_reduction(struct sock *sk)
 
 void tcp_cwnd_reduction(struct sock *sk, int newly_acked_sacked, int newly_lost, int flag)
 {
-	struct inet_connection_sock *icsk = inet_csk(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	int sndcnt = 0;
 	int delta = tp->snd_ssthresh - tcp_packets_in_flight(tp);
@@ -4522,17 +4521,12 @@ void tcp_parse_options(const struct net *net,
 				break;
 
 			case TCPOPT_EXP:
-				if (opsize >= TCPOLEN_EXP_ACCECN_BASE) {
-					u16 magic = get_unaligned_be16(ptr);
-					if (magic == TCPOPT_ACCECN0_MAGIC ||
-					    magic == TCPOPT_ACCECN1_MAGIC)
-						opt_rx->accecn = (ptr - 2) - (unsigned char *)th;
 				/* Fast Open option shares code 254 using a
 				 * 16 bits magic number.
 				 */
-				} else if (opsize >= TCPOLEN_EXP_FASTOPEN_BASE &&
-					 get_unaligned_be16(ptr) ==
-					 TCPOPT_FASTOPEN_MAGIC) {
+				if (opsize >= TCPOLEN_EXP_FASTOPEN_BASE &&
+				    get_unaligned_be16(ptr) ==
+				    TCPOPT_FASTOPEN_MAGIC) {
 					tcp_parse_fastopen_option(opsize -
 						TCPOLEN_EXP_FASTOPEN_BASE,
 						ptr + 2, th->syn, foc, true);

@@ -641,7 +641,6 @@ static noinline void update_existing_head_ref(struct btrfs_trans_handle *trans,
 	struct btrfs_delayed_ref_root *delayed_refs =
 		&trans->transaction->delayed_refs;
 	struct btrfs_fs_info *fs_info = trans->fs_info;
-	u64 flags = btrfs_ref_head_to_space_flags(existing);
 	int old_ref_mod;
 
 	BUG_ON(existing->is_data != update->is_data);
@@ -821,9 +820,6 @@ add_delayed_ref_head(struct btrfs_trans_handle *trans,
 				btrfs_csum_bytes_to_leaves(trans->fs_info,
 							   head_ref->num_bytes);
 		}
-		if (head_ref->ref_mod < 0)
-			btrfs_mod_total_bytes_pinned(trans->fs_info, flags,
-						     head_ref->num_bytes);
 		delayed_refs->num_heads++;
 		delayed_refs->num_heads_ready++;
 		atomic_inc(&delayed_refs->num_entries);

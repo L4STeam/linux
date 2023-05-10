@@ -2433,23 +2433,6 @@ static void dg2_ddi_pre_enable_dp(struct intel_atomic_state *state,
 	intel_dsc_enable(encoder, crtc_state);
 }
 
-static void intel_ddi_power_up_lanes(struct intel_encoder *encoder,
-				     const struct intel_crtc_state *crtc_state)
-{
-	struct drm_i915_private *i915 = to_i915(encoder->base.dev);
-	struct intel_digital_port *dig_port = enc_to_dig_port(encoder);
-	enum phy phy = intel_port_to_phy(i915, encoder->port);
-
-	if (intel_phy_is_combo(i915, phy)) {
-		bool lane_reversal =
-			dig_port->saved_port_bits & DDI_BUF_PORT_REVERSAL;
-
-		intel_combo_phy_power_up_lanes(i915, phy, false,
-					       crtc_state->lane_count,
-					       lane_reversal);
-	}
-}
-
 static void tgl_ddi_pre_enable_dp(struct intel_atomic_state *state,
 				  struct intel_encoder *encoder,
 				  const struct intel_crtc_state *crtc_state,

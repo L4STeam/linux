@@ -856,9 +856,6 @@ static void igb_ptp_tx_hwtstamp(struct igb_adapter *adapter)
 	dev_kfree_skb_any(skb);
 }
 
-#define IGB_RET_PTP_DISABLED 1
-#define IGB_RET_PTP_INVALID 2
-
 /**
  * igb_ptp_rx_pktstamp - retrieve Rx per packet timestamp
  * @q_vector: Pointer to interrupt specific structure

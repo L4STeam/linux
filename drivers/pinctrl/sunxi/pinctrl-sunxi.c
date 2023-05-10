@@ -1153,8 +1153,6 @@ static void sunxi_pinctrl_irq_handler(struct irq_desc *desc)
 
 	chained_irq_enter(chip, desc);
 
-	chained_irq_enter(chip, desc);
-
 	reg = sunxi_irq_status_reg_from_bank(pctl->desc, bank);
 	val = readl(pctl->membase + reg);
 

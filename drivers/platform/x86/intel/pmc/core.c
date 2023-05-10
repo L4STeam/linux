@@ -2028,15 +2028,6 @@ static int pmc_core_probe(struct platform_device *pdev)
 		pmc_core_send_ltr_ignore(pmcdev, 3);
 	}
 
-	/*
-	 * On TGL, due to a hardware limitation, the GBE LTR blocks PC10 when
-	 * a cable is attached. Tell the PMC to ignore it.
-	 */
-	if (pmcdev->map == &tgl_reg_map) {
-		dev_dbg(&pdev->dev, "ignoring GBE LTR\n");
-		pmc_core_send_ltr_ignore(3);
-	}
-
 	pmc_core_dbgfs_register(pmcdev);
 
 	device_initialized = true;

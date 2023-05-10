@@ -322,20 +322,6 @@ epoll_put_uevent(__poll_t revents, __u64 data,
 
 	return uevent+1;
 }
-#else
-asmlinkage long sys_oabi_epoll_ctl(int epfd, int op, int fd,
-				   struct oabi_epoll_event __user *event)
-{
-	return -EINVAL;
-}
-
-asmlinkage long sys_oabi_epoll_wait(int epfd,
-				    struct oabi_epoll_event __user *events,
-				    int maxevents, int timeout)
-{
-	return -EINVAL;
-}
-#endif
 
 struct oabi_sembuf {
 	unsigned short	sem_num;

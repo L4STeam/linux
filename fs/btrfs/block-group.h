@@ -327,7 +327,4 @@ void btrfs_unfreeze_block_group(struct btrfs_block_group *cache);
 bool btrfs_inc_block_group_swap_extents(struct btrfs_block_group *bg);
 void btrfs_dec_block_group_swap_extents(struct btrfs_block_group *bg, int amount);
 
-bool btrfs_inc_block_group_swap_extents(struct btrfs_block_group *bg);
-void btrfs_dec_block_group_swap_extents(struct btrfs_block_group *bg, int amount);
-
 #endif /* BTRFS_BLOCK_GROUP_H */

@@ -662,7 +662,6 @@ static int bareudp_newlink(struct net *net, struct net_device *dev,
 			   struct netlink_ext_ack *extack)
 {
 	struct bareudp_conf conf;
-	LIST_HEAD(list_kill);
 	int err;
 
 	err = bareudp2info(data, &conf, extack);

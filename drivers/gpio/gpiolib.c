@@ -621,12 +621,6 @@ int gpiochip_add_data_with_key(struct gpio_chip *gc, void *data,
 	 */
 	gdev->dev.fwnode = dev_fwnode(&gdev->dev) ?: fwnode;
 
-	/*
-	 * Assign fwnode depending on the result of the previous calls,
-	 * if none of them succeed, assign it to the parent's one.
-	 */
-	gdev->dev.fwnode = dev_fwnode(&gdev->dev) ?: fwnode;
-
 	gdev->id = ida_alloc(&gpio_ida, GFP_KERNEL);
 	if (gdev->id < 0) {
 		ret = gdev->id;

@@ -79,17 +79,6 @@ struct selinux_policy_convert_data {
 	struct sidtab_convert_params sidtab_params;
 };
 
-struct convert_context_args {
-	struct selinux_state *state;
-	struct policydb *oldp;
-	struct policydb *newp;
-};
-
-struct selinux_policy_convert_data {
-	struct convert_context_args args;
-	struct sidtab_convert_params sidtab_params;
-};
-
 /* Forward declaration. */
 static int context_struct_to_string(struct policydb *policydb,
 				    struct context *context,

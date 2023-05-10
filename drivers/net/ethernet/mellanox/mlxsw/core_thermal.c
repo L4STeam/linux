@@ -169,12 +169,6 @@ mlxsw_thermal_module_trips_update(struct device *dev, struct mlxsw_core *core,
 		return 0;
 	}
 
-	if (crit_temp > emerg_temp) {
-		dev_warn(dev, "%s : Critical threshold %d is above emergency threshold %d\n",
-			 tz->tzdev->type, crit_temp, emerg_temp);
-		return 0;
-	}
-
 	/* According to the system thermal requirements, the thermal zones are
 	 * defined with three trip points. The critical and emergency
 	 * temperature thresholds, provided by QSFP module are set as "active"
