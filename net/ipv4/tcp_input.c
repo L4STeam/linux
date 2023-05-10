@@ -448,7 +448,7 @@ static void tcp_ecn_rcv_synack(struct sock *sk, const struct sk_buff *skb,
 		if (tcp_ecn_mode_pending(tp))
 			/* Downgrade from AccECN, or requested initially */
 			//tcp_ecn_mode_set(tp, TCP_ECN_MODE_RFC3168);
-			tcp_ecn_mode_set(tp, TCP_ECN_MODE_DISABLED);
+			tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
 		break;
 	default:
 		tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
