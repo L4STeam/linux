@@ -483,8 +483,6 @@ static void tcp_ecn_rcv_syn(struct tcp_sock *tp, const struct tcphdr *th,
 			tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
 		}
 	}
-	if (tcp_ecn_mode_accecn(tp) && (!th->ae))
-		tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
 	if (tcp_ecn_mode_rfc3168(tp) && (!th->ece || !th->cwr))
 		tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
 }
@@ -6803,7 +6801,7 @@ discard:
 		tcp_sync_mss(sk, icsk->icsk_pmtu_cookie);
 		tcp_initialize_rcv_mss(sk);
 
-		tcp_send_synack(sk);
+		tcp_send_synack(sk, th);
 #if 0
 		/* Note, we could accept data and URG from this segment.
 		 * There are no obstacles to make this (except that we must
