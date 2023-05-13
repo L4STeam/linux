@@ -470,10 +470,9 @@ static void tcp_ecn_rcv_synack(struct sock *sk, const struct sk_buff *skb,
 	}
 }
 
-static void tcp_ecn_rcv_syn(struct sock *sk, const struct tcphdr *th,
+static void tcp_ecn_rcv_syn(struct tcp_sock *tp, const struct tcphdr *th,
 			    const struct sk_buff *skb)
 {
-	struct tcp_sock *tp = tcp_sk(sk);
 	if (tcp_ecn_mode_pending(tp)) {
 		if (!tcp_accecn_syn_requested(th)) {
 			/* Downgrade to classic ECN feedback */
@@ -484,7 +483,7 @@ static void tcp_ecn_rcv_syn(struct sock *sk, const struct tcphdr *th,
 			tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
 		}
 	}
-	if (tcp_ca_needs_accecn(sk) && (!th->ae))
+	if (tcp_ecn_mode_accecn(tp) && (!th->ae))
 		tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
 	if (tcp_ecn_mode_rfc3168(tp) && (!th->ece || !th->cwr))
 		tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
@@ -6798,7 +6797,7 @@ discard:
 		tp->snd_wl1    = TCP_SKB_CB(skb)->seq;
 		tp->max_window = tp->snd_wnd;
 
-		tcp_ecn_rcv_syn(sk, th, skb);
+		tcp_ecn_rcv_syn(tp, th, skb);
 
 		tcp_mtup_init(sk);
 		tcp_sync_mss(sk, icsk->icsk_pmtu_cookie);
