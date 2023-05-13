@@ -6801,7 +6801,7 @@ discard:
 		tcp_sync_mss(sk, icsk->icsk_pmtu_cookie);
 		tcp_initialize_rcv_mss(sk);
 
-		tcp_send_synack(sk, th);
+		tcp_send_synack(sk);
 #if 0
 		/* Note, we could accept data and URG from this segment.
 		 * There are no obstacles to make this (except that we must
@@ -7174,7 +7174,7 @@ static void tcp_ecn_create_request(struct request_sock *req,
 		return;
 	}
 
-	if (!th_ecn)
+	if (!th_ecn || (th_ecn && tcp_ca_needs_accecn(listen_sk)))
 		return;
 
 	ect = !INET_ECN_is_not_ect(TCP_SKB_CB(skb)->ip_dsfield);

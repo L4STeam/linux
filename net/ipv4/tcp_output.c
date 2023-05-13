@@ -304,14 +304,12 @@ static u16 tcp_select_window(struct sock *sk)
 }
 
 /* Packet ECN state for a SYN-ACK */
-static void tcp_ecn_send_synack(struct sock *sk, struct sk_buff *skb, const struct tcphdr *th)
+static void tcp_ecn_send_synack(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	TCP_SKB_CB(skb)->tcp_flags &= ~TCPHDR_CWR;
 
-	if (tcp_ca_needs_accecn(sk) && (!th->ae))
-		tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
 	if (tcp_ecn_disabled(tp))
 		TCP_SKB_CB(skb)->tcp_flags &= ~TCPHDR_ECE;
 	else if (tcp_ca_needs_ecn(sk) ||
@@ -3705,7 +3703,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
  * to get called. If this assumption fails then the initial rcv_wnd
  * and rcv_wscale values will not be correct.
  */
-int tcp_send_synack(struct sock *sk, const struct tcphdr *th)
+int tcp_send_synack(struct sock *sk)
 {
 	struct sk_buff *skb;
 
@@ -3734,7 +3732,7 @@ int tcp_send_synack(struct sock *sk, const struct tcphdr *th)
 		}
 
 		TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_ACK;
-		tcp_ecn_send_synack(sk, skb, th);
+		tcp_ecn_send_synack(sk, skb);
 	}
 	return tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);
 }
