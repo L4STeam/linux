@@ -168,7 +168,7 @@ void tcp_assign_congestion_control(struct sock *sk)
 	rcu_read_unlock();
 
 	memset(icsk->icsk_ca_priv, 0, sizeof(icsk->icsk_ca_priv));
-	if (ca->flags & TCP_CONG_NEEDS_ECN)
+	if (ca->flags & TCP_CONG_NEEDS_ECN || ca->flags & TCP_CONG_NEEDS_ACCECN)
 		__INET_ECN_xmit(sk, tcp_ca_wants_ect_1(sk));
 	else
 		INET_ECN_dontxmit(sk);
@@ -182,7 +182,7 @@ void tcp_init_congestion_control(struct sock *sk)
 	tcp_sk(sk)->fast_ack_mode = 0;
 	if (icsk->icsk_ca_ops->init)
 		icsk->icsk_ca_ops->init(sk);
-	if (tcp_ca_needs_ecn(sk))
+	if (tcp_ca_needs_ecn(sk) || tcp_ca_needc_accecn(sk))
 		/* The CA is already initialized, expect it to set the
 		 * appropriate flag to select ECT(1).
 		 */
@@ -202,7 +202,7 @@ static void tcp_reinit_congestion_control(struct sock *sk,
 	icsk->icsk_ca_setsockopt = 1;
 	memset(icsk->icsk_ca_priv, 0, sizeof(icsk->icsk_ca_priv));
 
-	if (ca->flags & TCP_CONG_NEEDS_ECN)
+	if (ca->flags & TCP_CONG_NEEDS_ECN || ca->flags & TCP_CONG_NEEDS_ACCECN)
 		__INET_ECN_xmit(sk, tcp_ca_wants_ect_1(sk));
 	else
 		INET_ECN_dontxmit(sk);

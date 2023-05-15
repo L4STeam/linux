@@ -312,7 +312,8 @@ static void tcp_ecn_send_synack(struct sock *sk, struct sk_buff *skb)
 	if (tcp_ecn_disabled(tp))
 		TCP_SKB_CB(skb)->tcp_flags &= ~TCPHDR_ECE;
 	else if (tcp_ca_needs_ecn(sk) ||
-		 tcp_bpf_ca_needs_ecn(sk))
+		 tcp_bpf_ca_needs_ecn(sk) ||
+		 tcp_ca_needs_accecn(sk))
 		__INET_ECN_xmit(sk, tcp_ca_wants_ect_1(sk));
 
 	if (tp->ecn_flags & TCP_ECN_MODE_ACCECN) {
@@ -346,7 +347,7 @@ static void tcp_ecn_send_syn(struct sock *sk, struct sk_buff *skb)
 	tp->ecn_flags = 0;
 
 	if (use_ecn) {
-		if (tcp_ca_needs_ecn(sk) || bpf_needs_ecn)
+		if (tcp_ca_needs_ecn(sk) || bpf_needs_ecn || tcp_ca_needs_accecn(sk))
 			__INET_ECN_xmit(sk, tcp_ca_wants_ect_1(sk));
 
 		TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_ECE | TCPHDR_CWR;
