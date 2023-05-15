@@ -7174,8 +7174,15 @@ static void tcp_ecn_create_request(struct request_sock *req,
 		return;
 	}
 
-	if (!th_ecn || (th_ecn && tcp_ca_needs_accecn(listen_sk)))
+	if (!th_ecn)
 		return;
+
+	if (th_ecn && tcp_ca_needs_accecn(liste_sk))
+		if (((!ect || th->res1 || th->ae) && ecn_ok) ||
+		    tcp_ca_needs_ecn(listen_sk) ||
+		    (ecn_ok_dst & DST_FEATURE_ECN_CA) ||
+		    tcp_bpf_ca_needs_ecn((struct sock *)req))
+			inet_rsk(req)->ecn_ok = 1;
 
 	ect = !INET_ECN_is_not_ect(TCP_SKB_CB(skb)->ip_dsfield);
 	ecn_ok_dst = dst_feature(dst, DST_FEATURE_ECN_MASK);
