@@ -7175,11 +7175,10 @@ static void tcp_ecn_create_request(struct request_sock *req,
 		return;
 	}
 
-	if (!th_ecn}
+	if (!th_ecn)
 		return;
-	if (th_ecn && tcp_ca_needs_accecn(liste_sk) && !tcp_ca_needs_ecn(liste_sk)) {
+	if (th_ecn && tcp_ca_needs_accecn(liste_sk) && !tcp_ca_needs_ecn(liste_sk))
 		tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
-	}
 
 	ect = !INET_ECN_is_not_ect(TCP_SKB_CB(skb)->ip_dsfield);
 	ecn_ok_dst = dst_feature(dst, DST_FEATURE_ECN_MASK);
