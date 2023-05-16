@@ -7161,7 +7161,7 @@ static void tcp_ecn_create_request(struct request_sock *req,
 {
 	const struct tcphdr *th = tcp_hdr(skb);
 	const struct net *net = sock_net(listen_sk);
-	struct tcp_sock *tp = tcp_sk(liste_sk);
+	struct tcp_sock *tp = tcp_sk(listen_sk);
 	bool th_ecn = th->ece && th->cwr;
 	bool ect, ecn_ok;
 	u32 ecn_ok_dst;
@@ -7177,7 +7177,7 @@ static void tcp_ecn_create_request(struct request_sock *req,
 
 	if (!th_ecn)
 		return;
-	if (th_ecn && tcp_ca_needs_accecn(liste_sk) && !tcp_ca_needs_ecn(liste_sk))
+	if (th_ecn && tcp_ca_needs_accecn(listen_sk) && !tcp_ca_needs_ecn(listen_sk))
 		tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
 
 	ect = !INET_ECN_is_not_ect(TCP_SKB_CB(skb)->ip_dsfield);
