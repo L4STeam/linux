@@ -7186,9 +7186,6 @@ static void tcp_ecn_create_request(struct request_sock *req,
 	    (ecn_ok_dst & DST_FEATURE_ECN_CA) ||
 	    tcp_bpf_ca_needs_ecn((struct sock *)req))
 		inet_rsk(req)->ecn_ok = 1;
-
-        if (th_ecn && tcp_ca_needs_accecn(listen_sk))
-                tcp_ecn_mode_set(tcp_sk(tp), TCP_ECN_DISABLED);
 }
 
 static void tcp_openreq_init(struct request_sock *req,
