@@ -2748,7 +2748,7 @@ static void bbr2_set_state(struct sock *sk, u8 new_state)
 }
 
 static struct tcp_congestion_ops tcp_bbr2_cong_ops __read_mostly = {
-	.flags		= TCP_CONG_NON_RESTRICTED | TCP_CONG_WANTS_CE_EVENTS,
+	.flags		= TCP_CONG_NON_RESTRICTED | TCP_CONG_WANTS_CE_EVENTS | TCP_CONG_NO_FALLBACK_RFC3168,
 	.name		= "bbr2",
 	.owner		= THIS_MODULE,
 	.init		= bbr2_init,

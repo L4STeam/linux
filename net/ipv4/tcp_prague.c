@@ -861,7 +861,7 @@ static struct tcp_congestion_ops prague __read_mostly = {
 	.get_info	= prague_get_info,
 	.tso_segs	= prague_tso_segs,
 	.flags		= TCP_CONG_NEEDS_ECN | TCP_CONG_NEEDS_ACCECN |
-		TCP_CONG_NON_RESTRICTED,
+		TCP_CONG_NO_FALLBACK_RFC3168 | TCP_CONG_NON_RESTRICTED,
 	.owner		= THIS_MODULE,
 	.name		= "prague",
 };

@@ -442,7 +442,7 @@ static void tcp_ecn_openreq_child(struct sock *sk,
 		tp->accecn_opt_demand = 1;
 		tcp_ecn_received_counters(sk, skb, skb->len - th->doff * 4);
 	} else {
-		tcp_ecn_mode_set(tp, inet_rsk(req)->ecn_ok && !tcp_ca_needs_accecn(sk) ?
+		tcp_ecn_mode_set(tp, inet_rsk(req)->ecn_ok && !tcp_ca_no_fallback_rfc3168(sk) ?
 				     TCP_ECN_MODE_RFC3168 :
 				     TCP_ECN_DISABLED);
 	}
