@@ -303,21 +303,21 @@ exit:
 static void prague_update_pacing_rate(struct sock *sk)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
-	u32 max_inflight;
+	u64 max_inflight;
 	u64 rate, burst;
 	int mtu;
 
 	mtu = tcp_mss_to_mtu(sk, tp->mss_cache);
 	// Must also set tcp_ecn_option=0 and tcp_ecn_unsafe_cep=1
 	// to disable the option and safer heuristic...
-	max_inflight = prague_frac_cwnd_to_snd_cwnd(sk);
+	max_inflight = ca->frac_cwnd;
 
 	rate = (u64)((u64)USEC_PER_SEC << 3) * mtu;
 	if (tp->snd_cwnd < tp->snd_ssthresh / 2)
 		rate <<= 1;
 	if (likely(tp->srtt_us))
 		rate = div64_u64(rate, tp->srtt_us);
-	rate *= max_inflight;
+	rate = (rate*max_inflight + (ONE_CWND >> 1)) >> CWND_UNIT;
 	rate = min_t(u64, rate, sk->sk_max_pacing_rate);
 	/* TODO(otilmans) rewrite the tso_segs hook to bytes to avoid this
 	 * division. It will somehow need to be able to take hdr sizes into
