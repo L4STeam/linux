@@ -478,9 +478,10 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 	}
 
 	increase = acked * ca->ai_ack_increase;
-	if (likely(ca->frac_cwnd))
-		increase = div_u64(increase + (ca->frac_cwnd >> 1),
-				   ca->frac_cwnd);
+	new_cwnd = prague_frac_cwnd_to_snd_cwnd(sk);
+	if (likely(new_cwnd))
+		increase = div_u64(increase + (new_cwnd>> 1),
+				   new_cwnd);
 	ca->frac_cwnd += max_t(u64, acked, increase);
 
 adjust:
