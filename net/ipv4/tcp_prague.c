@@ -302,6 +302,7 @@ exit:
  */
 static void prague_update_pacing_rate(struct sock *sk)
 {
+	struct prague *ca = prague_ca(sk);
 	const struct tcp_sock *tp = tcp_sk(sk);
 	u64 max_inflight;
 	u64 rate, burst;
