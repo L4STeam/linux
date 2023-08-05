@@ -169,7 +169,7 @@ struct prague {
 	u64 alpha_stamp;	/* EWMA update timestamp */
 	u64 upscaled_alpha;	/* Congestion-estimate EWMA */
 	u64 ai_ack_increase;	/* AI increase per non-CE ACKed MSS */
-	u64 frac_cwnd;          /* internal fractional cwnd */
+	u64 frac_cwnd;		/* internal fractional cwnd */
 	u64 loss_frac_cwnd;
 	u32 loss_cwnd;
 	u32 max_tso_burst;
@@ -265,7 +265,7 @@ static u64 prague_unscaled_ai_ack_increase(struct sock *sk)
 static u32 prague_frac_cwnd_to_snd_cwnd(struct sock *sk)
 {
 	struct prague *ca = prague_ca(sk);
-        return max((u32)((ca->frac_cwnd + ONE_CWND - 1) >> CWND_UNIT), 1);
+	return max((u32)((ca->frac_cwnd + ONE_CWND - 1) >> CWND_UNIT), 1);
 }
 
 /* RTT independence will scale the classical 1/W per ACK increase. */
@@ -487,15 +487,15 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 
 adjust:
 	new_cwnd = prague_frac_cwnd_to_snd_cwnd(sk);
-        if (tp->snd_cwnd > new_cwnd && tp->snd_cwnd > MIN_CWND) {
-	    /* Reuse the step-wise cwnd decrement */
-	    --tp->snd_cwnd;
-	    tp->snd_ssthresh = tp->snd_cwnd;
-	    prague_cwnd_changed(sk);
+	if (tp->snd_cwnd > new_cwnd && tp->snd_cwnd > MIN_CWND) {
+		/* Reuse the step-wise cwnd decrement */
+		--tp->snd_cwnd;
+		tp->snd_ssthresh = tp->snd_cwnd;
+		prague_cwnd_changed(sk);
 	} else if (tp->snd_cwnd < new_cwnd && tp->snd_cwnd < tp->snd_cwnd_clamp) {
-	    /* Reuse the step-wise cwnd increment */
-	    ++tp->snd_cwnd;
-            prague_cwnd_changed(sk);
+		/* Reuse the step-wise cwnd increment */
+		++tp->snd_cwnd;
+		prague_cwnd_changed(sk);
 	}
 	return;
 }
