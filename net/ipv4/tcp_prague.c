@@ -97,7 +97,7 @@
 #define PRAGUE_SHIFT_G		4		/* EWMA gain g = 1/2^4 */
 #define DEFAULT_RTT_TRANSITION	500
 #define MAX_SCALED_RTT		(100 * USEC_PER_MSEC)
-#define RTT_UNIT		7
+#define RTT_UNIT		4
 #define RTT2US(x)		((x) << RTT_UNIT)
 #define US2RTT(x)		((x) >> RTT_UNIT)
 
