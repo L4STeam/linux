@@ -489,8 +489,7 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 		}
 	}
 
-	if (prague_is_rtt_indep(sk) &&
-	    RTT2US(prague_target_rtt(sk)) > tcp_stamp_us_delta(tp->tcp_mstamp,
+	if (RTT2US(prague_target_rtt(sk)) > tcp_stamp_us_delta(tp->tcp_mstamp,
 							       ca->ai_ack_stamp))
 		goto adjust;
 	ca->ai_ack_stamp = tp->tcp_mstamp;
