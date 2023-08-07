@@ -323,8 +323,9 @@ static void prague_update_pacing_rate(struct sock *sk)
 	rate = (u64)((u64)USEC_PER_SEC << 3) * mtu;
 	if (tp->snd_cwnd < tp->snd_ssthresh / 2)
 		rate <<= 1;
-	if (likely(tp->srtt_us))
-		rate = div64_u64(rate, tp->srtt_us);
+	//if (likely(tp->srtt_us))
+	//	rate = div64_u64(rate, tp->srtt_us);
+	rate = div64_u64(rate, RTT2US(prague_target_rtt(sk)) << 3);
 	rate = (rate*max_inflight + (ONE_CWND >> 1)) >> CWND_UNIT;
 	rate = min_t(u64, rate, sk->sk_max_pacing_rate);
 	/* TODO(otilmans) rewrite the tso_segs hook to bytes to avoid this
