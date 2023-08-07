@@ -270,7 +270,7 @@ static u32 prague_frac_cwnd_to_snd_cwnd(struct sock *sk)
 
 	rtt = US2RTT(tcp_sk(sk)->srtt_us >> 3);
 	target = prague_target_rtt(sk);
-	frac_cwnd = div64_u64(ca->frac_cwnd * rtt, target);
+	frac_cwnd = div64_u64(ca->frac_cwnd * rtt + (target>>1), target);
 
 	return max((u32)((frac_cwnd + ONE_CWND - 1) >> CWND_UNIT), 1);
 }
@@ -461,7 +461,7 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 {
 	struct prague *ca = prague_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
-	s64 acked;
+	s64 acked, increase;
 	u32 new_cwnd;
 
 	acked = rs->acked_sacked;
@@ -485,8 +485,8 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 	}
 
 	if (prague_is_rtt_indep(sk) &&
-		RTT2US(prague_target_rtt(sk)) > tcp_stamp_us_delta(tp->tcp_mstamp,
-								   ca->ai_ack_stamp))
+	    RTT2US(prague_target_rtt(sk)) > tcp_stamp_us_delta(tp->tcp_mstamp,
+							       ca->ai_ack_stamp))
 		goto adjust;
 	ca->ai_ack_stamp = tp->tcp_mstamp;
 	increase = acked * ca->ai_ack_increase;
