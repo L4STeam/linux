@@ -270,7 +270,9 @@ static u32 prague_frac_cwnd_to_snd_cwnd(struct sock *sk)
 
 	rtt = US2RTT(tcp_sk(sk)->srtt_us >> 3);
 	target = prague_target_rtt(sk);
-	frac_cwnd = div64_u64(ca->frac_cwnd * rtt + (target>>1), target);
+	frac_cwnd = ca->frac_cwnd;
+	if (likely(target))
+		frac_cwnd = div64_u64(frac_cwnd * rtt + (target>>1), target);
 
 	return max((u32)((frac_cwnd + ONE_CWND - 1) >> CWND_UNIT), 1);
 }
@@ -325,7 +327,8 @@ static void prague_update_pacing_rate(struct sock *sk)
 		rate <<= 1;
 	//if (likely(tp->srtt_us))
 	//	rate = div64_u64(rate, tp->srtt_us);
-	rate = div64_u64(rate, RTT2US(prague_target_rtt(sk)) << 3);
+	if (likely(RTT2US(prague_target_rtt(sk))))
+		rate = div64_u64(rate + RTT2US(prague_target_rtt(sk)) << 2, RTT2US(prague_target_rtt(sk)) << 3);
 	rate = (rate*max_inflight + (ONE_CWND >> 1)) >> CWND_UNIT;
 	rate = min_t(u64, rate, sk->sk_max_pacing_rate);
 	/* TODO(otilmans) rewrite the tso_segs hook to bytes to avoid this
@@ -462,7 +465,8 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 {
 	struct prague *ca = prague_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
-	s64 acked, increase;
+	u64 increase;
+	s64 acked;
 	u32 new_cwnd;
 
 	acked = rs->acked_sacked;
@@ -765,7 +769,7 @@ static void prague_init(struct sock *sk)
 	LOG(sk, "RTT indep chosen: %d (after %u rounds), targetting %u usec",
 		ca->rtt_indep, ca->rtt_transition_delay, prague_target_rtt(sk));
 	ca->saw_ce = !!tp->delivered_ce;
-	if (tp->srtt_us)
+	if (US2RTT(tp->srtt_us >> 3))
 		ca->frac_cwnd = div64_u64(ca->frac_cwnd*prague_target_rtt(sk), US2RTT(tp->srtt_us >> 3));
 
 	/* reuse existing meaurement of SRTT as an intial starting point */
