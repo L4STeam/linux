@@ -97,7 +97,7 @@
 #define PRAGUE_SHIFT_G		4		/* EWMA gain g = 1/2^4 */
 #define DEFAULT_RTT_TRANSITION	500
 #define MAX_SCALED_RTT		(100 * USEC_PER_MSEC)
-#define RTT_UNIT		4
+#define RTT_UNIT		7
 #define RTT2US(x)		((x) << RTT_UNIT)
 #define US2RTT(x)		((x) >> RTT_UNIT)
 
@@ -168,6 +168,7 @@ struct prague {
 	u64 cwr_stamp;
 	u64 alpha_stamp;	/* EWMA update timestamp */
 	u64 upscaled_alpha;	/* Congestion-estimate EWMA */
+	u64 ai_ack_stamp;
 	u64 ai_ack_increase;	/* AI increase per non-CE ACKed MSS */
 	u64 frac_cwnd;		/* internal fractional cwnd */
 	u64 loss_frac_cwnd;
@@ -483,6 +484,14 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 		}
 	}
 
+	if (prague_is_rtt_indep(sk) &&
+		RTT2US(prague_target_rtt(sk)) > tcp_stamp_us_delta(tp->tcp_mstamp,
+								   ca->ai_ack_stamp))
+		goto adjust;
+	ca->ai_ack_stamp = tp->tcp_mstamp;
+	increase = acked * ca->ai_ack_increase;
+	ca->frac_cwnd += max_t(u64, acked, increase);
+
 adjust:
 	new_cwnd = prague_frac_cwnd_to_snd_cwnd(sk);
 	if (tp->snd_cwnd > new_cwnd && tp->snd_cwnd > MIN_CWND) {
@@ -578,7 +587,7 @@ static void prague_enter_cwr(struct sock *sk)
 	reduction = (alpha * reduction +
 			 (PRAGUE_MAX_ALPHA >> 1)) >>
 		(PRAGUE_ALPHA_BITS);
-	ca->frac_cwnd = ca->frac_cwnd + ca->ai_ack_increase - reduction;
+	ca->frac_cwnd -= reduction;
 
 	return;
 }
