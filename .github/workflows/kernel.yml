@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-20.04
     needs: build
     permissions: write-all
-    if: github.ref == 'refs/heads/testing'
+    if: ${{ github.ref == 'refs/heads/testing' || github.ref == 'refs/heads/ratebase'}}
     steps:
     - name: Get artifact
       uses: actions/download-artifact@v3
@@ -79,10 +79,19 @@ jobs:
         mkdir debian_build
         mv *.deb debian_build
         zip -r l4s-testing.zip debian_build
-    - name: Release tip build
+    - name: Release tip build for testing branch
       uses: pyTooling/Actions/releaser@main
+      if: ${{ github.ref == 'refs/heads/testing'}}
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: testing-build
         files: |
           l4s-testing.zip
+    - name: Release tip build fpr ratebase branch
+      uses: pyTooling/Actions/releaser@main
+      if: ${{ github.ref == 'refs/heads/ratebase'}}
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        tag: ratebase-build
+        files: |
+          l4s-ratebase.zip
