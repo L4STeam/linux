@@ -170,6 +170,8 @@ struct prague {
 	u64 upscaled_alpha;	/* Congestion-estimate EWMA */
 	u64 ai_ack_stamp;
 	u64 ai_ack_increase;	/* AI increase per non-CE ACKed MSS */
+        u32 acc_acked;          /* accumulated acked */
+        u32 acc_acked_ce;       /* accumulated acked ce */
 	u64 frac_cwnd;		/* internal fractional cwnd */
 	u64 loss_frac_cwnd;
 	u32 loss_cwnd;
@@ -272,7 +274,7 @@ static u32 prague_frac_cwnd_to_snd_cwnd(struct sock *sk)
 	target = prague_target_rtt(sk);
 	frac_cwnd = ca->frac_cwnd;
 	if (likely(target))
-		frac_cwnd = div64_u64(frac_cwnd * rtt + target - 1, target);
+		frac_cwnd = div64_u64(frac_cwnd * rtt, target);
 
 	return max((u32)((frac_cwnd + ONE_CWND - 1) >> CWND_UNIT), 1);
 }
@@ -328,7 +330,7 @@ static void prague_update_pacing_rate(struct sock *sk)
 	//if (likely(tp->srtt_us))
 	//	rate = div64_u64(rate, tp->srtt_us);
 	if (likely(RTT2US(prague_target_rtt(sk))))
-		rate = div64_u64(rate + RTT2US(prague_target_rtt(sk)) << 2, RTT2US(prague_target_rtt(sk)) << 3);
+		rate = div64_u64(rate, RTT2US(prague_target_rtt(sk)) << 3);
 	rate = (rate*max_inflight + (ONE_CWND >> 1)) >> CWND_UNIT;
 	rate = min_t(u64, rate, sk->sk_max_pacing_rate);
 	/* TODO(otilmans) rewrite the tso_segs hook to bytes to avoid this
@@ -478,6 +480,9 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 		acked -= rs->ece_delta;
 	}
 
+	ca->acc_acked += rs->acked_sacked;
+	ca->acc_acked_ce += rs->ece_delta;
+
 	if (acked <= 0 || ca->in_loss || !tcp_is_cwnd_limited(sk))
 		goto adjust;
 
@@ -493,9 +498,12 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 							       ca->ai_ack_stamp))
 		goto adjust;
 	ca->ai_ack_stamp = tp->tcp_mstamp;
-	increase = acked * ca->ai_ack_increase;
-	ca->frac_cwnd += max_t(u64, acked, increase);
-
+	if (likely(ca->acc_acked)) {
+		increase = div_u64((ca->acc_acked - ca->acc_acked_ce)*ca->ai_ack_increase, ca->acc_acked);
+		ca->frac_cwnd += max_t(u64, increase, ca->ai_ack_increase);
+	}
+	ca->acc_acked = 0;
+	ca->acc_acked_ce = 0;
 adjust:
 	new_cwnd = prague_frac_cwnd_to_snd_cwnd(sk);
 	if (tp->snd_cwnd > new_cwnd && tp->snd_cwnd > MIN_CWND) {
