@@ -272,7 +272,7 @@ static u32 prague_frac_cwnd_to_snd_cwnd(struct sock *sk)
 	target = prague_target_rtt(sk);
 	frac_cwnd = ca->frac_cwnd;
 	if (likely(target))
-		frac_cwnd = div64_u64(frac_cwnd * rtt + (target>>1), target);
+		frac_cwnd = div64_u64(frac_cwnd * rtt + target - 1, target);
 
 	return max((u32)((frac_cwnd + ONE_CWND - 1) >> CWND_UNIT), 1);
 }
@@ -587,10 +587,10 @@ static void prague_enter_cwr(struct sock *sk)
 	if (prague_ecn_fallback == 1 && tp->classic_ecn > L_STICKY)
 		alpha = prague_classic_ecn_fallback(tp, alpha);
 
-	reduction = ((ca->frac_cwnd + 1) >> 1) + ONE_CWND;
-	reduction = (alpha * reduction +
-			 (PRAGUE_MAX_ALPHA >> 1)) >>
-		(PRAGUE_ALPHA_BITS);
+	reduction = (alpha * (ca->frac_cwnd) +
+			 /* Unbias the rounding by adding 1/2 */
+			 PRAGUE_MAX_ALPHA) >>
+		(PRAGUE_ALPHA_BITS + 1U);
 	ca->frac_cwnd -= reduction;
 
 	return;
