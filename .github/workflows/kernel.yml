@@ -59,7 +59,7 @@ jobs:
         path: debian_build
 
   release:
-    name: Release build artifacts for the testing branch
+    name: Release build artifacts for the branch
     runs-on: ubuntu-20.04
     needs: build
     permissions: write-all
@@ -74,7 +74,8 @@ jobs:
           wget https://github.com/L4STeam/iproute2/releases/download/master-build/iproute2-l4s.zip
           unzip iproute2-l4s
           mv -t . iproute2-l4s/*.deb
-    - name: Zip artifacts
+    - name: Zip artifacts for testing branch
+      if: ${{ github.ref == 'refs/heads/testing'}}
       run: |
         mkdir debian_build
         mv *.deb debian_build
@@ -87,7 +88,13 @@ jobs:
         tag: testing-build
         files: |
           l4s-testing.zip
-    - name: Release tip build fpr ratebase branch
+    - name: Zip artifacts for ratebase branch
+      if: ${{ github.ref == 'refs/heads/ratebase'}}
+      run: |
+        mkdir debian_build
+        mv *.deb debian_build
+        zip -r l4s-ratebase.zip debian_build
+    - name: Release tip build for ratebase branch
       uses: pyTooling/Actions/releaser@main
       if: ${{ github.ref == 'refs/heads/ratebase'}}
       with:
