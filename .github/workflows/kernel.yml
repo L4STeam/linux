@@ -74,31 +74,19 @@ jobs:
           wget https://github.com/L4STeam/iproute2/releases/download/master-build/iproute2-l4s.zip
           unzip iproute2-l4s
           mv -t . iproute2-l4s/*.deb
-    - name: Zip artifacts for testing branch
-      if: ${{ github.ref == 'refs/heads/testing'}}
+    - name: Extract branch name
+      shell: bash
+      run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
+      id: extract_branch
+    - name: Zip artifacts
       run: |
         mkdir debian_build
         mv *.deb debian_build
-        zip -r l4s-testing.zip debian_build
-    - name: Release tip build for testing branch
+        zip -r l4s-${{ steps.extract_branch.outputs.branch }}.zip debian_build
+    - name: Release tip build
       uses: pyTooling/Actions/releaser@main
-      if: ${{ github.ref == 'refs/heads/testing'}}
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        tag: testing-build
+        tag: ${{ steps.extract_branch.outputs.branch }}-build
         files: |
-          l4s-testing.zip
-    - name: Zip artifacts for ratebase branch
-      if: ${{ github.ref == 'refs/heads/ratebase'}}
-      run: |
-        mkdir debian_build
-        mv *.deb debian_build
-        zip -r l4s-ratebase.zip debian_build
-    - name: Release tip build for ratebase branch
-      uses: pyTooling/Actions/releaser@main
-      if: ${{ github.ref == 'refs/heads/ratebase'}}
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        tag: ratebase-build
-        files: |
-          l4s-ratebase.zip
+          l4s-${{ steps.extract_branch.outputs.branch }}.zip
