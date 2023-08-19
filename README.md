@@ -105,12 +105,11 @@ heavily virtualized settings, as scheduling becomes less reliable.
 sudo ethtool -K $NETIF tso off gso off gro off lro off
 # fq qdisc needs to be configured on clients and server NICS (instead of fq_codel; fq is the only one that supports the pacing)
 sudo tc qdisc replace dev $NETIF root handle 1: fq limit 20480 flow_limit 10240
-# Enable Accurate ECN (only needed for BBR2 and DCTCP, not needed for Prague)
+# Enable Accurate ECN (only needed for BBR2 and DCTCP; Prague attempts to negotiate Accurate ECN automatically)
 sysctl -w net.ipv4.tcp_ecn=3
 # set Prague congestion control system wide (or in the application with socket options)
 sysctl -w net.ipv4.tcp_congestion_control=prague
 ```
 
-Prague attempts to negotiate Accurate ECN automatically.
-Note that, at the moment, Accurate ECN **must** be enabled on both ends of a
-connection in order it with DCTCP or BBR v2.
+Note that Accurate ECN **must** be enabled on both ends of a
+connection to test Prague, DCTCP or BBRv2.
