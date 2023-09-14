@@ -1,16 +1,13 @@
 # Linux kernel tree with L4S patches
 
-This linux kernel repository contains the various patches developed in the
-context of the L4S experiment.
+This linux kernel repository contains the various patches developed in the context of the L4S experiment.
 
 Namely:
-- The dualQ coupled AQM (see branch sch_dualpi2, as well as the
-[iproute2 repository](https://github.com/L4STeam/iproute2)
+- The dualQ coupled AQM (see branch sch_dualpi2, as well as the [iproute2 repository](https://github.com/L4STeam/iproute2)
 - An implementation of Accurate ECN (see branch AccECN-full)
 - The base implementation of TCP Prague (see branch tcp_prague)
 - ECT(1) enabled DCTCP
-- ECT(1) enabled BBR v2 (from v2alpha branch in
-[BBR v2 repo](https://github.com/google/bbr))
+- ECT(1) enabled BBR v2 (from v2alpha branch in [BBR v2 repo](https://github.com/google/bbr))
 
 # Installation (debian derivatives)
 
@@ -30,18 +27,15 @@ sudo modprobe tcp_prague
 
 ## This branch (testing)
 
-This branch accumulates all patches into a single kernel tree, in order to ease
-up testing.
+This branch accumulates all patches into a single kernel tree, in order to ease up testing.
 
-You can grab a pre-built debian archive of the kernel image and headers through
-the latest [actions artifacts](https://github.com/L4STeam/linux/actions). The tip of the master branch is also always build/packaged (alongside iproute2) and attached as pre-release artifact for the `testing-build` tag.
+You can grab a pre-built debian archive of the kernel image and headers through the latest [actions artifacts](https://github.com/L4STeam/linux/actions). The tip of the master branch is also always build/packaged (alongside iproute2) and attached as pre-release artifact for the `testing-build` tag.
 
 ## Compilation
 
 Compile it as any kernel, enabling the dualpi2 AQM and TCP Prague in the config.
 
-Assuming you compile this on a similar machine that where you intend to run the
-kernel (e.g., architecture, distribution, ...):
+Assuming you compile this on a similar machine that where you intend to run the kernel (e.g., architecture, distribution, ...):
 ```bash
 # Try to use existing kernel config
 if [ -f /proc/config.gz ]; then
@@ -91,13 +85,12 @@ tc/tc qdisc replace dev eth0 root dualpi2 ...
 # iproute2 utils with `make install`
 ```
 
-## Performing experiments
+# Performing experiments
 
-While dualpi2 can work with DCTCP, DCTCP suffers from a few unfortunate
-interactions with GSO/pacing/..., resulting in under-utilization. As a result,
-we advice you to use tcp_prague which currently has
-basic fixes to those limitations. Note that this might still under-perform in
-heavily virtualized settings, as scheduling becomes less reliable.
+While dualpi2 can work with DCTCP, DCTCP suffers from a few unfortunate interactions with GSO/pacing/..., resulting in under-utilization. 
+
+As a result, we advice you to use tcp_prague which currently has basic fixes to those limitations. 
+Note that this might still under-perform in heavily virtualized settings, as scheduling becomes less reliable.
 
 ```bash
 # some preparations for having better paced traffic and reduce bursts for each network interface $NETIF that sends L4S traffic
@@ -111,6 +104,18 @@ sysctl -w net.ipv4.tcp_ecn=3
 sysctl -w net.ipv4.tcp_congestion_control=prague
 ```
 
+## Accurate ECN negotiation
 Prague attempts to negotiate Accurate ECN automatically.
-Note that, at the moment, Accurate ECN **must** be enabled on both ends of a
-connection in order it with DCTCP or BBR v2.
+Note that, at the moment, Accurate ECN **must** be enabled on both ends of a connection in order it with DCTCP or BBR v2.
+
+
+Among 3 different congestion control algorthms (net.ipv4.tcp_congestion_control=prague/bbr2/cubic) and 4 differnet ECN configurations (net.ipv4.tcp_ecn=3/1/2/0), the negotiated ECN modes between server and client are as follows:
+Note that the negotiated ECN modes can be either Accurate ECN, Classic ECN, or Non-ECN.
+![image](https://github.com/L4STeam/linux/assets/125277758/d157a783-80c1-4e7c-ba88-1cb7aae61c6b)
+
+In addition, the following congestion control algorithm and ECN fields of IP header (ECN(1)/ECN(0)/Not ECT) is used when server as Data Sender.
+Note thtat prague-reno is the current fallback mode of TCP Prague.
+![image](https://github.com/L4STeam/linux/assets/125277758/09caf41e-c856-429c-8da4-41697293b005)
+
+Also, when client is Data Sender, the following congestion cotnrol algorithm and ECN fields of IP header is applied.
+![image](https://github.com/L4STeam/linux/assets/125277758/f0432117-0a8f-4c2c-9978-cc496285467c)

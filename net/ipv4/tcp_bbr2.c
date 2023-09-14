@@ -2499,6 +2499,14 @@ module_param_named(refill_add_inc,       bbr_refill_add_inc,       uint, 0664);
 module_param_array_named(bbr2_pacing_gain, bbr2_pacing_gain,       int,
 			 &bbr2_pacing_gain_size, 0644);
 
+static void bbr2_release(struct sock *sk)
+{
+        struct tcp_sock *tp = tcp_sk(sk);
+        tp->ecn_flags &= ~TCP_ECN_ECT_1;
+        if (!tcp_ecn_mode_any(tp))
+                INET_ECN_dontxmit(sk);
+}
+
 static void bbr2_init(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -2576,6 +2584,11 @@ static void bbr2_init(struct sock *sk)
 	bbr->alpha_last_delivered_ce = 0;
 
 	tp->fast_ack_mode = min_t(u32, 0x2U, bbr_fast_ack_mode);
+	if (!tcp_ecn_mode_any(tp) &&
+            sk->sk_state != TCP_LISTEN && sk->sk_state != TCP_CLOSE) {
+                bbr2_release(sk);
+		return;
+        }
 	if (tcp_ecn_mode_accecn(tp))
 		tp->ecn_flags |= TCP_ECN_ECT_1;
 }
@@ -2735,10 +2748,11 @@ static void bbr2_set_state(struct sock *sk, u8 new_state)
 }
 
 static struct tcp_congestion_ops tcp_bbr2_cong_ops __read_mostly = {
-	.flags		= TCP_CONG_NON_RESTRICTED | TCP_CONG_WANTS_CE_EVENTS,
+	.flags		= TCP_CONG_NON_RESTRICTED | TCP_CONG_WANTS_CE_EVENTS | TCP_CONG_NO_FALLBACK_RFC3168,
 	.name		= "bbr2",
 	.owner		= THIS_MODULE,
 	.init		= bbr2_init,
+	.release        = bbr2_release,
 	.cong_control	= bbr2_main,
 	.sndbuf_expand	= bbr_sndbuf_expand,
 	.skb_marked_lost = bbr2_skb_marked_lost,
