@@ -387,27 +387,28 @@ tcp_early_retrans - INTEGER
 
 tcp_ecn - INTEGER
 	Control use of Explicit Congestion Notification (ECN) by TCP.
-	ECN is used only when both ends of the TCP connection indicate
-	support for it.  This feature is useful in avoiding losses due
-	to congestion by allowing supporting routers to signal
-	congestion before having to drop packets. The highest variant
-	of ECN feedback that both peers support is chosen by the ECN
-	negotiation (Accurate ECN, ECN, or no ECN).
+	ECN is used only when both ends of the TCP connection indicate support
+	for it.  This feature is useful in avoiding losses due to congestion by
+	allowing supporting routers to signal congestion before having to drop
+	packets.  A host that supports ECN both sends ECN at the IP layer and
+	feeds back ECN at the TCP layer.  The highest variant of ECN feedback
+	that both peers support is chosen by the ECN negotiation (Accurate ECN,
+	ECN, or no ECN).
 
 	The highest negotiated variant for incoming connection requests
 	and the highest variant requested by outgoing connection
 	attempts:
 
-	= ==================== ====================
-	  Incoming connections Outgoing connections
-	= ==================== ====================
-	0 No ECN               No ECN
-	1 ECN                  ECN
-	2 ECN                  No ECN
-	3 AccECN               AccECN
-	4 AccECN               ECN
-	5 AccECN               No ECN
-	= ==================== ====================
+	===== ==================== ====================
+	Value Incoming connections Outgoing connections
+	===== ==================== ====================
+	0     No ECN               No ECN
+	1     ECN                  ECN
+	2     ECN                  No ECN
+	3     AccECN               AccECN
+	4     AccECN               ECN
+	5     AccECN               No ECN
+	===== ==================== ====================
 
 	Default: 2
 
