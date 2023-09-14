@@ -59,11 +59,11 @@ jobs:
         path: debian_build
 
   release:
-    name: Release build artifacts for the branch
+    name: Release build artifacts for the testing branch
     runs-on: ubuntu-20.04
     needs: build
     permissions: write-all
-    if: ${{ github.ref == 'refs/heads/testing' || github.ref == 'refs/heads/ratebase'}}
+    if: ${{ github.ref == 'refs/heads/testing' }}
     steps:
     - name: Get artifact
       uses: actions/download-artifact@v3
