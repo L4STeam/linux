@@ -236,11 +236,10 @@ struct tcp_bbr_info {
 
 struct tcp_prague_info {
 	__u64	prague_alpha;
-	__u64	prague_ai_ack_increase;
+	__u64	prague_frac_cwnd;
+	__u64   prague_rate_bytes;
 	__u32	prague_max_burst;
 	__u32	prague_round;
-	__u32	prague_rtt_transition;
-	__u32	prague_rtt_indep;
 	__u32	prague_rtt_target;
 	bool	prague_enabled;
 };

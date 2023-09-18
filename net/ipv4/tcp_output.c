@@ -2018,7 +2018,7 @@ unsigned int tcp_sync_mss(struct sock *sk, u32 pmtu)
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	int mss_now;
 
-	if (icsk->icsk_mtup.search_high > pmtu)
+	if (icsk->icsk_mtup.search_high > pmtu && !tp->mss_cache_set_by_ca)
 		icsk->icsk_mtup.search_high = pmtu;
 
 	mss_now = tcp_mtu_to_mss(sk, pmtu);
@@ -2048,7 +2048,7 @@ unsigned int tcp_current_mss(struct sock *sk)
 
 	mss_now = tp->mss_cache;
 
-	if (dst) {
+	if (dst && !tp->mss_cache_set_by_ca) {
 		u32 mtu = dst_mtu(dst);
 		if (mtu != inet_csk(sk)->icsk_pmtu_cookie)
 			mss_now = tcp_sync_mss(sk, mtu);
