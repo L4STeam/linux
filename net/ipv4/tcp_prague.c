@@ -689,7 +689,7 @@ static void prague_init(struct sock *sk)
 	ca->saw_ce = !!tp->delivered_ce;
 
 	ca->hsrtt_us = (tp->srtt_us) ? (tp->srtt_us << HSRTT_SHIFT) : (USEC_PER_MSEC << (HSRTT_SHIFT + 3));
-	ca->rate_offset = (prague_rate_offset && prage_rate_offset < ((1 << OFFSET_UNIT) -1)) ? prague_rate_offset : RATE_OFFSET ;
+	ca->rate_offset = (prague_rate_offset && prague_rate_offset < ((1 << OFFSET_UNIT) -1)) ? prague_rate_offset : RATE_OFFSET ;
 
 	tp->classic_ecn = 0ULL;
 	tp->alpha = PRAGUE_MAX_ALPHA;		/* Used ONLY to log alpha */
