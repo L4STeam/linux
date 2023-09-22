@@ -101,7 +101,9 @@
 #define DEFAULT_RTT_TRANSITION	500
 #define MAX_SCALED_RTT		(100 * USEC_PER_MSEC)
 #define MTU_SYS			1500UL
+#define RATE_OFFSET		4
 #define OFFSET_UNIT		7
+#define HSRTT_SHIFT		7
 
 static u32 prague_burst_shift __read_mostly = 12; /* 1/2^12 sec ~=.25ms */
 MODULE_PARM_DESC(prague_burst_shift,
@@ -126,17 +128,13 @@ MODULE_PARM_DESC(prague_rate_offset,
 		 "Pacing rate offset in 1/128 units at each half of RTT_virt");
 module_param(prague_rate_offset, uint, 0644);
 
-static int prague_hsrtt_shift __read_mostly = 7;
-MODULE_PARM_DESC(prague_hsrtt_shift,
-		 "Pacing high-smoothed RTT facot as a base-2 exponent");
-module_param(prague_hsrtt_shift, uint, 0644);
-
 struct prague {
 	u64 cwr_stamp;
 	u64 alpha_stamp;	/* EWMA update timestamp */
 	u64 upscaled_alpha;	/* Congestion-estimate EWMA */
 	u64 ai_ack_increase;	/* AI increase per non-CE ACKed MSS */
 	u64 hsrtt_us;
+	u32 rate_offset;
 	u64 frac_cwnd;		/* internal fractional cwnd */
 	u64 rate_bytes;		/* internal pacing rate in bytes */
 	u64 loss_rate_bytes;
@@ -284,9 +282,9 @@ static u64 prague_pacing_rate_to_max_mtu(struct sock *sk)
 					(MIN_CWND_VIRT - 1), MIN_CWND_VIRT);
 }
 
-static bool prague_half_target_rtt_elapsed(struct sock *sk)
+static bool prague_half_virtual_rtt_elapsed(struct sock *sk)
 {
-	return (prague_target_rtt(sk) >> (3 + 1)) <=
+	return (prague_virtual_rtt(sk) >> (3 + 1)) <=
 			tcp_stamp_us_delta(tcp_sk(sk)->tcp_mstamp,
 			prague_ca(sk)->alpha_stamp);
 }
@@ -296,18 +294,17 @@ static u64 prague_pacing_rate_to_frac_cwnd(struct sock *sk)
 	struct prague *ca = prague_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	u64 rtt;
-	u32 mtu;
+	u64 mtu;
 
 	mtu = tcp_mss_to_mtu(sk, tp->mss_cache);
-	rtt = (prague_is_rtt_indep(sk) && (ca->hsrtt_us >> prague_hsrtt_shift)) ?
-					(ca->hsrtt_us >> prague_hsrtt_shift) : tp->srtt_us;
+	rtt = (ca->hsrtt_us >> HSRTT_SHIFT) ? (ca->hsrtt_us >> HSRTT_SHIFT) : tp->srtt_us;
 
 	return div_u64(mul_64_64_shift(ca->rate_bytes, rtt, 23 - CWND_UNIT) + (mtu - 1), mtu);
 }
 
 static u32 prague_valid_mtu(struct sock *sk, u32 mtu)
 {
-	return max_t(u32, min_t(u32, MTU_SYS, mtu), tcp_mss_to_mtu(sk, MIN_MSS));
+	return max_t(u32, min_t(u32, inet_csk(sk)->icsk_pmtu_cookie, mtu), tcp_mss_to_mtu(sk, MIN_MSS));
 }
 
 /* RTT independence will scale the classical 1/W per ACK increase. */
@@ -339,14 +336,14 @@ static void prague_update_pacing_rate(struct sock *sk)
 	u64 mtu;
 
 	if (prague_is_rtt_indep(sk)) {
-		offset = mul_64_64_shift(prague_rate_offset, ca->rate_bytes, OFFSET_UNIT);
-		if (prague_half_target_rtt_elapsed(sk)) // second half
+		offset = mul_64_64_shift(ca->rate_offset, ca->rate_bytes, OFFSET_UNIT);
+		if (prague_half_virtual_rtt_elapsed(sk)) // second half
 			rate = ca->rate_bytes - offset;
 		else // first half
 			rate = ca->rate_bytes + offset;
 	} else {
 		mtu = tcp_mss_to_mtu(sk, tp->mss_cache);
-		max_inflight = ca->frac_cwnd;
+		max_inflight = max(tp->snd_cwnd, tcp_packets_in_flight(tp));
 		rate = (u64)((u64)USEC_PER_SEC << 3) * mtu;
 	}
 
@@ -356,8 +353,8 @@ static void prague_update_pacing_rate(struct sock *sk)
 	if (!prague_is_rtt_indep(sk)) {
 		if (likely(tp->srtt_us))
 			rate = div64_u64(rate, (u64)tp->srtt_us);
-		rate = (rate*max_inflight) >> CWND_UNIT;
-		ca->rate_bytes = max_t(u64, rate, MINIMUM_RATE);
+		rate = rate*max_inflight;
+		ca->rate_bytes = rate;
 	}
 
 	rate = min_t(u64, rate, sk->sk_max_pacing_rate);
@@ -396,7 +393,6 @@ static void prague_update_alpha(struct sock *sk)
 	struct prague *ca = prague_ca(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	u64 ecn_segs, alpha, mtu, mtu_used;
-	u64 hsrtt;
 
 	/* Do not update alpha before we have proof that there's an AQM on
 	 * the path.
@@ -437,9 +433,7 @@ static void prague_update_alpha(struct sock *sk)
 		tp->snd_cwnd = prague_frac_cwnd_to_snd_cwnd(sk);
 	}
 
-	hsrtt = ca->hsrtt_us;
-	hsrtt = hsrtt - (hsrtt >> prague_hsrtt_shift) + tp->srtt_us;
-	WRITE_ONCE(ca->hsrtt_us, hsrtt);
+	ca->hsrtt_us += tp->srtt_us - (ca->hsrtt_us >> HSRTT_SHIFT);
 skip:
 	prague_new_round(sk);
 }
@@ -485,7 +479,7 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 		ca->frac_cwnd = max_t(u64, ca->frac_cwnd + acked, prague_pacing_rate_to_frac_cwnd(sk));
 	} else {
 		increase = acked * ca->ai_ack_increase;
-		new_cwnd = prague_frac_cwnd_to_snd_cwnd(sk);
+		new_cwnd = tp->snd_cwnd;
 		if (likely(new_cwnd))
 			increase = div_u64(increase + (new_cwnd >> 1), new_cwnd);
 		ca->frac_cwnd += max_t(u64, acked, increase);
@@ -519,9 +513,9 @@ static void prague_enter_loss(struct sock *sk)
 	ca->loss_cwnd = tp->snd_cwnd;
 	ca->loss_rate_bytes = ca->rate_bytes;
 	ca->rate_bytes -= (ca->rate_bytes >> 1);
+	//ca->rate_bytes = mul_64_64_shift(717, ca->rate_bytes, 10);
 	ca->frac_cwnd = prague_pacing_rate_to_frac_cwnd(sk);
 	ca->in_loss = 1;
-	prague_cwnd_changed(sk);
 }
 
 static void prague_enter_cwr(struct sock *sk)
@@ -584,7 +578,9 @@ static u32 prague_cwnd_undo(struct sock *sk)
 	struct prague *ca = prague_ca(sk);
 
 	/* We may have made some progress since then, account for it. */
-	ca->rate_bytes += ca->rate_bytes - ca->loss_rate_bytes;
+	ca->in_loss = 0;
+	ca->rate_bytes = max(ca->rate_bytes, ca->loss_rate_bytes);
+	//ca->rate_bytes += ca->rate_bytes - ca->loss_rate_bytes;
 	ca->frac_cwnd = prague_pacing_rate_to_frac_cwnd(sk);
 	return max(ca->loss_cwnd, tcp_sk(sk)->snd_cwnd);
 }
@@ -692,7 +688,8 @@ static void prague_init(struct sock *sk)
 	ca->rtt_target = prague_rtt_target << 3;
 	ca->saw_ce = !!tp->delivered_ce;
 
-	ca->hsrtt_us = (tp->srtt_us) ? (tp->srtt_us << prague_hsrtt_shift) : (USEC_PER_MSEC << (prague_hsrtt_shift + 3));
+	ca->hsrtt_us = (tp->srtt_us) ? (tp->srtt_us << HSRTT_SHIFT) : (USEC_PER_MSEC << (HSRTT_SHIFT + 3));
+	ca->rate_offset = (prague_rate_offset && prage_rate_offset < ((1 << OFFSET_UNIT) -1)) ? prague_rate_offset : RATE_OFFSET ;
 
 	tp->classic_ecn = 0ULL;
 	tp->alpha = PRAGUE_MAX_ALPHA;		/* Used ONLY to log alpha */
@@ -739,8 +736,8 @@ static void __exit prague_unregister(void)
 module_init(prague_register);
 module_exit(prague_unregister);
 
-MODULE_AUTHOR("Olivier Tilmans <olivier.tilmans@nokia-bell-labs.com>");
 MODULE_AUTHOR("Chia-Yu Chang <chia-yu.chang@nokia-bell-labs.com>");
+MODULE_AUTHOR("Olivier Tilmans <olivier.tilmans@nokia-bell-labs.com>");
 MODULE_AUTHOR("Koen De Schepper <koen.de_schepper@nokia-bell-labs.com>");
 MODULE_AUTHOR("Bob briscoe <research@bobbriscoe.net>");
 
