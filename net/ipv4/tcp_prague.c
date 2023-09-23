@@ -304,7 +304,8 @@ static u64 prague_pacing_rate_to_frac_cwnd(struct sock *sk)
 
 static u32 prague_valid_mtu(struct sock *sk, u32 mtu)
 {
-	return max_t(u32, min_t(u32, inet_csk(sk)->icsk_pmtu_cookie, mtu), tcp_mss_to_mtu(sk, MIN_MSS));
+	u32 sk_dst_mtu = dst_mtu(__sk_dst_get(sk));
+	return max_t(u32, min_t(u32, sk_dst_mtu, mtu), tcp_mss_to_mtu(sk, MIN_MSS));
 }
 
 /* RTT independence will scale the classical 1/W per ACK increase. */
