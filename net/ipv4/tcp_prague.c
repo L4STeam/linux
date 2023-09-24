@@ -133,6 +133,7 @@ struct prague {
 	u64 alpha_stamp;	/* EWMA update timestamp */
 	u64 upscaled_alpha;	/* Congestion-estimate EWMA */
 	u64 ai_ack_increase;	/* AI increase per non-CE ACKed MSS */
+	u32 mtu_cache;
 	u64 hsrtt_us;
 	u32 rate_offset;
 	u64 frac_cwnd;		/* internal fractional cwnd */
@@ -304,8 +305,7 @@ static u64 prague_pacing_rate_to_frac_cwnd(struct sock *sk)
 
 static u32 prague_valid_mtu(struct sock *sk, u32 mtu)
 {
-	u32 sk_dst_mtu = dst_mtu(__sk_dst_get(sk));
-	return max_t(u32, min_t(u32, sk_dst_mtu, mtu), tcp_mss_to_mtu(sk, MIN_MSS));
+	return max_t(u32, min_t(u32, prague_ca(sk)->mtu_cache, mtu), tcp_mss_to_mtu(sk, MIN_MSS));
 }
 
 /* RTT independence will scale the classical 1/W per ACK increase. */
@@ -425,13 +425,15 @@ static void prague_update_alpha(struct sock *sk)
 	WRITE_ONCE(ca->upscaled_alpha, alpha);
 	tp->alpha = alpha >> PRAGUE_SHIFT_G;
 
-	mtu_used = tcp_mss_to_mtu(sk, tp->mss_cache);
-	mtu = prague_valid_mtu(sk, prague_pacing_rate_to_max_mtu(sk));
-	if (mtu_used != mtu) {
-		ca->frac_cwnd = div_u64(ca->frac_cwnd * mtu_used, mtu);
-		tp->mss_cache_set_by_ca = true;
-		tcp_sync_mss(sk, mtu);
-		tp->snd_cwnd = prague_frac_cwnd_to_snd_cwnd(sk);
+	if (prague_is_rtt_indep(sk) && !ca->in_loss) {
+		mtu_used = tcp_mss_to_mtu(sk, tp->mss_cache);
+		mtu = prague_valid_mtu(sk, prague_pacing_rate_to_max_mtu(sk));
+		if (mtu_used != mtu) {
+			ca->frac_cwnd = div_u64(ca->frac_cwnd * mtu_used, mtu);
+			tp->mss_cache_set_by_ca = true;
+			tcp_sync_mss(sk, mtu);
+			tp->snd_cwnd = prague_frac_cwnd_to_snd_cwnd(sk);
+		}
 	}
 
 	ca->hsrtt_us += tp->srtt_us - (ca->hsrtt_us >> HSRTT_SHIFT);
@@ -689,6 +691,7 @@ static void prague_init(struct sock *sk)
 	ca->rtt_target = prague_rtt_target << 3;
 	ca->saw_ce = !!tp->delivered_ce;
 
+	ca->mtu_cache = tcp_mss_to_mtu(sk, tp->mss_cache);
 	ca->hsrtt_us = (tp->srtt_us) ? (tp->srtt_us << HSRTT_SHIFT) : (USEC_PER_MSEC << (HSRTT_SHIFT + 3));
 	ca->rate_offset = (prague_rate_offset && prague_rate_offset < ((1 << OFFSET_UNIT) -1)) ? prague_rate_offset : RATE_OFFSET ;
 
