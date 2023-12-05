@@ -98,7 +98,7 @@
 #define CWND_UNIT		20U
 #define ONE_CWND		(1ULL << CWND_UNIT)
 #define PRAGUE_SHIFT_G		4		/* EWMA gain g = 1/2^4 */
-#define DEFAULT_RTT_TRANSITION	500
+#define DEFAULT_RTT_TRANSITION	4
 #define MAX_SCALED_RTT		(100 * USEC_PER_MSEC)
 #define MTU_SYS			1500UL
 #define RATE_OFFSET		4
@@ -165,8 +165,13 @@ module_param(prague_rtt_transition, uint, 0644);
 
 static int prague_rate_offset __read_mostly = 4; /* 4/128 ~= 3% */
 MODULE_PARM_DESC(prague_rate_offset,
-                 "Pacing rate offset in 1/128 units at each half of RTT_virt");
+		 "Pacing rate offset in 1/128 units at each half of RTT_virt");
 module_param(prague_rate_offset, uint, 0644);
+
+static int prague_cwnd_transit __read_mostly = 4;
+MODULE_PARM_DESC(prague_cwnd_transit,
+		 "CWND mode switching point in term of # of MTU_SYS");
+module_param(prague_cwnd_transit, uint, 0644);
 
 static int prague_ecn_fallback __read_mostly = 0;
 MODULE_PARM_DESC(prague_ecn_fallback, "0 = none, 1 = detection & fallback"
@@ -196,6 +201,7 @@ struct prague {
 	u32 rtt_target;		/* RTT scaling target */
 	u8  saw_ce:1,		/* Is there an AQM on the path? */
 	    rtt_indep:3,	/* RTT independence mode */
+	    cwnd_mode:1,	/* CWND operating mode */
 	    in_loss:1;		/* In cwnd reduction caused by loss */
 };
 
@@ -225,7 +231,7 @@ static void __prague_connection_id(struct sock *sk, char *str, size_t len)
 	char __tmp[2 * (INET6_ADDRSTRLEN + 9) + 1] = {0};		\
 	__prague_connection_id(sk, __tmp, sizeof(__tmp));		\
 	/* pr_fmt expects the connection ID*/				\
-	pr_info("(%s) : " fmt "\n", __tmp, ##__VA_ARGS__);			\
+	pr_info("(%s) : " fmt "\n", __tmp, ##__VA_ARGS__);		\
 } while (0)
 
 static struct prague *prague_ca(struct sock *sk)
@@ -381,7 +387,7 @@ static void prague_update_pacing_rate(struct sock *sk)
 	u64 rate, burst, offset;
 	u64 mtu;
 
-	if (prague_is_rtt_indep(sk)) {
+	if (prague_is_rtt_indep(sk) && (ca->cwnd_mode == 1 && likely(ca->saw_ce))) {
 		offset = mul_64_64_shift(ca->rate_offset, ca->rate_bytes, OFFSET_UNIT);
 		if (prague_half_virtual_rtt_elapsed(sk)) // second half
 			rate = ca->rate_bytes - offset;
@@ -395,10 +401,10 @@ static void prague_update_pacing_rate(struct sock *sk)
 
 	if (tp->snd_cwnd < tp->snd_ssthresh / 2)
 		rate <<= 1;
-	if (!prague_is_rtt_indep(sk)) {
+	if (!prague_is_rtt_indep(sk) || (ca->cwnd_mode == 0 || unlikely(!ca->saw_ce))) {
 		if (likely(tp->srtt_us))
-			rate = div64_u64(rate, tp->srtt_us);
-		rate *= max_inflight;
+			rate = div64_u64(rate, (u64)tp->srtt_us);
+		rate = max_t(u64, rate*max_inflight, MINIMUM_RATE);
 		ca->rate_bytes = rate;
 	}
 
@@ -536,9 +542,8 @@ static void prague_update_alpha(struct sock *sk)
 			tp->snd_cwnd = prague_frac_cwnd_to_snd_cwnd(sk);
 		}
 	}
-
-	ca->hsrtt_us += tp->srtt_us - (ca->hsrtt_us >> HSRTT_SHIFT);
 skip:
+	ca->hsrtt_us = ca->hsrtt_us - (ca->hsrtt_us >> HSRTT_SHIFT) + tp->srtt_us;
 	prague_new_round(sk);
 }
 
@@ -573,7 +578,7 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 		}
 	}
 
-	if (prague_is_rtt_indep(sk)) {
+	if (prague_is_rtt_indep(sk) && (ca->cwnd_mode == 1 && likely(ca->saw_ce))) {
 		mtu_used = tcp_mss_to_mtu(sk, tp->mss_cache);
 		increase = div_u64(((u64)(acked * MTU_SYS)) << 23, prague_virtual_rtt(sk));
 		divisor = mtu_used << 23;
@@ -583,9 +588,9 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 		ca->frac_cwnd = max_t(u64, ca->frac_cwnd + acked, prague_pacing_rate_to_frac_cwnd(sk));
 	} else {
 		increase = acked * ca->ai_ack_increase;
-		if (likely(tp->snd_cwnd))
-			increase = div_u64(increase + (tp->snd_cwnd >> 1),
-					   tp->snd_cwnd);
+		new_cwnd = tp->snd_cwnd;
+		if (likely(new_cwnd))
+			increase = div_u64(increase + (new_cwnd >> 1), new_cwnd);
 		ca->frac_cwnd += max_t(u64, acked, increase);
 	}
 
@@ -616,9 +621,13 @@ static void prague_enter_loss(struct sock *sk)
 
 	ca->loss_cwnd = tp->snd_cwnd;
 	ca->loss_rate_bytes = ca->rate_bytes;
-	ca->rate_bytes -= (ca->rate_bytes >> 1);
-	//ca->rate_bytes = mul_64_64_shift(717, ca->rate_bytes, 10);
-	ca->frac_cwnd = prague_pacing_rate_to_frac_cwnd(sk);
+	if (prague_is_rtt_indep(sk) && (ca->cwnd_mode == 1 && likely(ca->saw_ce))) {
+		ca->rate_bytes -= (ca->rate_bytes >> 1);
+		//ca->rate_bytes = mul_64_64_shift(717, ca->rate_bytes, 10);
+		ca->frac_cwnd = prague_pacing_rate_to_frac_cwnd(sk);
+	} else {
+		ca->frac_cwnd -= (ca->frac_cwnd >> 1);
+	}
 	ca->in_loss = 1;
 }
 
@@ -671,7 +680,7 @@ static void prague_enter_cwr(struct sock *sk)
 	u64 reduction;
 	u64 alpha;
 
-	if (prague_is_rtt_indep(sk)) {
+	if (prague_is_rtt_indep(sk) && (ca->cwnd_mode == 1 && likely(ca->saw_ce))) {
 		if ((prague_target_rtt(sk) >> 3) > tcp_stamp_us_delta(tp->tcp_mstamp,
 								      ca->cwr_stamp))
 			return;
@@ -694,7 +703,7 @@ static void prague_enter_cwr(struct sock *sk)
 		reduction = (alpha * (ca->frac_cwnd) +
 				/* Unbias the rounding by adding 1/2 */
 				PRAGUE_MAX_ALPHA) >>
-			(PRAGUE_ALPHA_BITS + 1U);
+				(PRAGUE_ALPHA_BITS + 1U);
 		ca->frac_cwnd -= reduction;
 	}
 
@@ -777,6 +786,11 @@ static void prague_cong_control(struct sock *sk, const struct rate_sample *rs)
 	if (prague_should_update_ewma(sk))
 		prague_update_alpha(sk);
 	prague_update_pacing_rate(sk);
+	if (prague_ca(sk)->cwnd_mode == 0 && tcp_sk(sk)->snd_cwnd*tcp_mss_to_mtu(sk, tcp_sk(sk)->mss_cache) <= prague_cwnd_transit*MTU_SYS) {
+		prague_ca(sk)->cwnd_mode = 1;
+	} else if (prague_ca(sk)->cwnd_mode == 1 && tcp_sk(sk)->snd_cwnd*tcp_mss_to_mtu(sk, tcp_sk(sk)->mss_cache) > prague_cwnd_transit*MTU_SYS) {
+		prague_ca(sk)->cwnd_mode = 0;
+	}
 }
 
 static u32 prague_ssthresh(struct sock *sk)
@@ -882,7 +896,8 @@ static void prague_init(struct sock *sk)
 	ca->saw_ce = !!tp->delivered_ce;
 
 	ca->mtu_cache = tcp_mss_to_mtu(sk, tp->mss_cache);
-	ca->hsrtt_us = (tp->srtt_us) ? (tp->srtt_us << HSRTT_SHIFT) : (USEC_PER_MSEC << (HSRTT_SHIFT + 3));
+	// Default as 1us
+	ca->hsrtt_us = (tp->srtt_us) ? ((u64)tp->srtt_us) << HSRTT_SHIFT : (1 << (HSRTT_SHIFT + 3));
 	ca->rate_offset = (prague_rate_offset && prague_rate_offset < ((1 << OFFSET_UNIT) -1)) ? prague_rate_offset : RATE_OFFSET ;
 
 	/* reuse existing meaurement of SRTT as an intial starting point */
@@ -896,7 +911,7 @@ static void prague_init(struct sock *sk)
 
 	tp->classic_ecn = 0ULL;
 	tp->alpha = PRAGUE_MAX_ALPHA;		/* Used ONLY to log alpha */
-
+	ca->cwnd_mode = 0;
 	prague_new_round(sk);
 }
 
