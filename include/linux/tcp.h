@@ -126,7 +126,8 @@ struct tcp_request_sock {
 #if IS_ENABLED(CONFIG_MPTCP)
 	bool				drop_req;
 #endif
-	u8				accecn_ok  : 1,
+	u8				noect : 1,
+					accecn_ok  : 1,
 					saw_accecn_opt : 2,
 					syn_ect_snt: 2,
 					syn_ect_rcv: 2;

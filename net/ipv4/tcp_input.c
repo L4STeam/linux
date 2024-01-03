@@ -444,11 +444,31 @@ static void tcp_ecn_rcv_synack(struct sock *sk, const struct sk_buff *skb,
 		tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
 		break;
 	case 0x1:
-	case 0x5:
 		if (tcp_ca_no_fallback_rfc3168(sk))
-			tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
-		else if (tcp_ecn_mode_pending(tp))
-			tcp_ecn_mode_set(tp, TCP_ECN_MODE_RFC3168);
+		    tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
+		else
+		    tcp_ecn_mode_set(tp, TCP_ECN_MODE_RFC3168);
+		break;
+	// [CY] 3.1.2. Backward Compatibility - If a TCP Client has sent a SYN requesting AccECN feedback with 
+	// (AE,CWR,ECE) = (1,1,1) then receives a SYN/ACK with the currently reserved combination (AE,CWR,ECE) 
+	// = (1,0,1) but it does not have logic specific to such a combination, the Client MUST enable AccECN 
+	// mode as if the SYN/ACK confirmed that the Server supported AccECN and as if it fed back that the 
+	// IP-ECN field on the SYN had arrived unchanged.
+	case 0x5:
+		if (tcp_ecn_mode_pending(tp)) {
+		    tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
+		    tp->syn_ect_rcv = ip_dsfield & INET_ECN_MASK;
+		    if (tp->rx_opt.accecn &&
+			tp->saw_accecn_opt < TCP_ACCECN_OPT_COUNTER_SEEN) {
+			    tp->saw_accecn_opt = tcp_accecn_option_init(skb,
+									tp->rx_opt.accecn);
+				tp->accecn_opt_demand = 2;
+		    }
+		    if (INET_ECN_is_ce(ip_dsfield)) {
+			    tp->received_ce++;
+			    tp->received_ce_pending++;
+		    }
+		}
 		break;
 	default:
 		tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
@@ -6997,7 +7017,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 
 		tcp_initialize_rcv_mss(sk);
 		if (tcp_ecn_mode_accecn(tp))
-			tcp_accecn_third_ack(sk, skb, tp->syn_ect_snt);
+			tcp_accecn_third_ack(sk, skb, req, tp->syn_ect_snt);
 		tcp_fast_path_on(tp);
 		break;
 
@@ -7198,6 +7218,7 @@ static void tcp_openreq_init(struct request_sock *req,
 	tcp_rsk(req)->rcv_nxt = TCP_SKB_CB(skb)->seq + 1;
 	tcp_rsk(req)->snt_synack = 0;
 	tcp_rsk(req)->last_oow_ack_time = 0;
+	tcp_rsk(req)->noect = 0;
 	tcp_rsk(req)->accecn_ok = 0;
 	tcp_rsk(req)->saw_accecn_opt = 0;
 	tcp_rsk(req)->syn_ect_rcv = 0;
