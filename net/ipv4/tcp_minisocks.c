@@ -414,7 +414,11 @@ bool tcp_accecn_third_ack(struct sock *sk, const struct sk_buff *skb,
 		if (!TCP_SKB_CB(skb)->sacked) {
 		    inet_rsk(req)->ecn_ok = 0;
 		    tcp_rsk(req)->accecn_ok = 0;
+
 		    tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
+		    tp->prev_ecnfield = treq->syn_ect_rcv;
+		    tp->accecn_opt_demand = 1;
+		    tcp_ecn_received_counters(sk, skb, skb->len - th->doff * 4);
 		    verify_ace = false;
 		}
 		break;
@@ -447,24 +451,20 @@ static void tcp_ecn_openreq_child(struct sock *sk,
 	// [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on 
 	// any packet for the rest of the connection, if it has received or sent at least one valid 
 	// SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake.
-	if (treq->noect) {
-	    tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
-	} else {
-	    if (treq->accecn_ok) {
-		const struct tcphdr *th = (const struct tcphdr *)skb->data;
-		if (tcp_accecn_third_ack(sk, skb, req, treq->syn_ect_snt)) {
-		    tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
-		    tp->syn_ect_snt = treq->syn_ect_snt;
-		    tp->saw_accecn_opt = treq->saw_accecn_opt;
-		    tp->prev_ecnfield = treq->syn_ect_rcv;
-		    tp->accecn_opt_demand = 1;
-		    tcp_ecn_received_counters(sk, skb, skb->len - th->doff * 4);
-		}
-	    } else {
-		tcp_ecn_mode_set(tp, inet_rsk(req)->ecn_ok && !tcp_ca_no_fallback_rfc3168(sk) ?
-				     TCP_ECN_MODE_RFC3168 :
-	 			     TCP_ECN_DISABLED);
+	if (treq->accecn_ok) {
+	    const struct tcphdr *th = (const struct tcphdr *)skb->data;
+	    if (tcp_accecn_third_ack(sk, skb, req, treq->syn_ect_snt)) {
+	        tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
+	        tp->syn_ect_snt = treq->syn_ect_snt;
+	        tp->saw_accecn_opt = treq->saw_accecn_opt;
+	        tp->prev_ecnfield = treq->syn_ect_rcv;
+	        tp->accecn_opt_demand = 1;
+	        tcp_ecn_received_counters(sk, skb, skb->len - th->doff * 4);
 	    }
+	} else {
+	    tcp_ecn_mode_set(tp, inet_rsk(req)->ecn_ok && !tcp_ca_no_fallback_rfc3168(sk) ?
+	    		     TCP_ECN_MODE_RFC3168 :
+	    		     TCP_ECN_DISABLED);
 	}
 }
 
@@ -723,11 +723,6 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 			// the appropriate combination of TCP-ECN flags to feed back the IP-ECN field of this latest SYN)
 			    tcp_sk(sk)->syn_ect_rcv = TCP_SKB_CB(skb)->ip_dsfield & INET_ECN_MASK;
 
-			// [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on 
-			// any packet for the rest of the connection, if it has received or sent at least one valid 
-			// SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake.
-			    tcp_rsk(req)->noect = 1;
-			    INET_ECN_dontxmit(sk);
 			}
 		    }
 
