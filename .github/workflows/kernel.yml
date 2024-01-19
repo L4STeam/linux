@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-20.04
     needs: build
     permissions: write-all
-    if: ${{ github.ref == 'refs/heads/testing' || github.ref == 'refs/heads/ratebase' || github.ref == 'refs/heads/AccECN-2023'}}
+    if: ${{ github.ref == 'refs/heads/testing' || github.ref == 'refs/heads/ratebase' || github.ref == 'refs/heads/AccECN-2023' || github.ref == 'refs/heads/AccECN-2024'}}
     steps:
     - name: Get artifact
       uses: actions/download-artifact@v3
