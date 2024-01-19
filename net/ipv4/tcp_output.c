@@ -937,11 +937,12 @@ static bool tcp_accecn_option_beacon_check(const struct sock *sk)
 	if (!sock_net(sk)->ipv4.sysctl_tcp_ecn_option_beacon)
 		return false;
 
-	// [CY] 6.  Summary: Protocol Properties - REMOVE “However, it has to send a full-sized AccECN Option at least 
-	// three times per RTT, which the Data Sender can rely on as a regular beacon or checkpoint.”
-	return false;
-	//return tcp_stamp_us_delta(tp->tcp_mstamp, tp->accecn_opt_tstamp) >=
-	//       (tp->srtt_us >> (3 + TCP_ACCECN_BEACON_FREQ_SHIFT));
+	/* [CY] AccECN period shall be larger than srtt[us]/TCP_ECN_OPTION_BEACON
+	 * Following texts are removed in AccECN “6.  Summary: Protocol Properties - However, it has to send a full-sized
+	 *  AccECN Option at least three times per RTT, which the Data Sender can rely on as a regular beacon or checkpoint.”
+	 */
+	return tcp_stamp_us_delta(tp->tcp_mstamp, tp->accecn_opt_tstamp) * sock_net(sk)->ipv4.sysctl_tcp_ecn_option_beacon >=
+	       (tp->srtt_us >> 3);
 }
 
 /* Compute TCP options for SYN packets. This is not the final
