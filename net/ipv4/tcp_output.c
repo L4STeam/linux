@@ -389,9 +389,9 @@ tcp_ecn_make_synack(struct sock *sk, struct request_sock *req, struct tcphdr *th
 	// [CY] 3.2.3.2.2. Testing for Loss of Packets Carrying the AccECN Option - If this retransmission times out, 
 	// to expedite connection setup, the TCP Server SHOULD retransmit the SYN/ACK with (AE,CWR,ECE) = (0,0,0) and 
 	// no AccECN Option, but it remains in AccECN feedback mode
-		//th->ae  = 0;
-		//th->cwr = 0;
-		//th->ece = 0;
+		th->ae  = 0;
+		th->cwr = 0;
+		th->ece = 0;
 	}
 }
 

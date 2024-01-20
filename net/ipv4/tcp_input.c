@@ -444,7 +444,6 @@ static void tcp_ecn_rcv_synack(struct sock *sk, const struct sk_buff *skb,
 		tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
 		break;
 	case 0x1:
-	case 0x5:
 		if (tcp_ca_no_fallback_rfc3168(sk))
 		    tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
 		else
@@ -455,22 +454,22 @@ static void tcp_ecn_rcv_synack(struct sock *sk, const struct sk_buff *skb,
 	// = (1,0,1) but it does not have logic specific to such a combination, the Client MUST enable AccECN 
 	// mode as if the SYN/ACK confirmed that the Server supported AccECN and as if it fed back that the 
 	// IP-ECN field on the SYN had arrived unchanged.
-	//case 0x5:
-	//	if (tcp_ecn_mode_pending(tp)) {
-	//	    tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
-	//	    tp->syn_ect_rcv = ip_dsfield & INET_ECN_MASK;
-	//	    if (tp->rx_opt.accecn &&
-	//		tp->saw_accecn_opt < TCP_ACCECN_OPT_COUNTER_SEEN) {
-	//		    tp->saw_accecn_opt = tcp_accecn_option_init(skb,
-	//								tp->rx_opt.accecn);
-	//			tp->accecn_opt_demand = 2;
-	//	    }
-	//	    if (INET_ECN_is_ce(ip_dsfield)) {
-	//		    tp->received_ce++;
-	//		    tp->received_ce_pending++;
-	//	    }
-	//	}
-	//	break;
+	case 0x5:
+		if (tcp_ecn_mode_pending(tp)) {
+		    tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
+		    tp->syn_ect_rcv = ip_dsfield & INET_ECN_MASK;
+		    if (tp->rx_opt.accecn &&
+			tp->saw_accecn_opt < TCP_ACCECN_OPT_COUNTER_SEEN) {
+			    tp->saw_accecn_opt = tcp_accecn_option_init(skb,
+									tp->rx_opt.accecn);
+				tp->accecn_opt_demand = 2;
+		    }
+		    if (INET_ECN_is_ce(ip_dsfield)) {
+			    tp->received_ce++;
+			    tp->received_ce_pending++;
+		    }
+		}
+		break;
 	default:
 		tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
 		tp->syn_ect_rcv = ip_dsfield & INET_ECN_MASK;
