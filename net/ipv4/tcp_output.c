@@ -392,6 +392,11 @@ tcp_ecn_make_synack(struct sock *sk, struct request_sock *req, struct tcphdr *th
 		th->ae  = 0;
 		th->cwr = 0;
 		th->ece = 0;
+	// [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on 
+	// any packet for the rest of the connection, if it has received or sent at least one valid 
+	// SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake.
+		tcp_sk(sk)->ecn_fail = 1;
+		INET_ECN_dontxmit(sk);
 	}
 }
 
