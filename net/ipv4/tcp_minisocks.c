@@ -407,6 +407,16 @@ bool tcp_accecn_third_ack(struct sock *sk, const struct sk_buff *skb,
 	switch (ace) {
 	case 0x0:
 		tp->ecn_fail = 1;
+		// [CY] 3.2.2.1. ACE Field on the ACK of the SYN/ACK - If the Server is in AccECN mode and in SYN-RCVD 
+		// state, and if it receives a value of zero on a pure ACK with SYN=0 and no SACK blocks, for the rest
+		// of the connection the Server MUST NOT set ECT on outgoing packets and MUST NOT respond to AccECN 
+		// feedback. Nonetheless, as a Data Receiver it MUST NOT disable AccECN feedback.
+		if (!TCP_SKB_CB(skb)->sacked) {
+		    inet_rsk(req)->ecn_ok = 0;
+		    tcp_rsk(req)->accecn_ok = 0;
+		    tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
+		    verify_ace = false;
+		}
 		break;
 	case 0x7:
 	case 0x5:
@@ -443,10 +453,10 @@ static void tcp_ecn_openreq_child(struct sock *sk,
 	        tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
 	        tp->syn_ect_snt = treq->syn_ect_snt;
 	        tp->saw_accecn_opt = treq->saw_accecn_opt;
-	        tp->prev_ecnfield = treq->syn_ect_rcv;
-	        tp->accecn_opt_demand = 1;
-	        tcp_ecn_received_counters(sk, skb, skb->len - th->doff * 4);
 	    }
+	    tp->prev_ecnfield = treq->syn_ect_rcv;
+	    tp->accecn_opt_demand = 1;
+	    tcp_ecn_received_counters(sk, skb, skb->len - th->doff * 4);
 	} else {
 	    tcp_ecn_mode_set(tp, inet_rsk(req)->ecn_ok && !tcp_ca_no_fallback_rfc3168(sk) ?
 	    		     TCP_ECN_MODE_RFC3168 :
