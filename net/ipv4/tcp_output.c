@@ -396,7 +396,7 @@ tcp_ecn_make_synack(struct sock *sk, struct request_sock *req, struct tcphdr *th
 	// any packet for the rest of the connection, if it has received or sent at least one valid 
 	// SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake.
 		tcp_sk(sk)->ecn_fail = 1;
-		INET_ECN_dontxmit(sk);
+		//INET_ECN_dontxmit(sk);
 	}
 }
 

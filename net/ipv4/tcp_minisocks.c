@@ -397,24 +397,25 @@ void tcp_openreq_init_rwin(struct request_sock *req,
 }
 EXPORT_SYMBOL(tcp_openreq_init_rwin);
 
-bool tcp_accecn_third_ack(struct sock *sk, const struct sk_buff *skb,
-		          struct request_sock *req, u8 syn_ect_snt)
+void tcp_accecn_third_ack(struct sock *sk, const struct sk_buff *skb,
+		          u8 syn_ect_snt)
 {
 	u8 ace = tcp_accecn_ace(tcp_hdr(skb));
 	struct tcp_sock *tp = tcp_sk(sk);
-	bool verify_ace = true;
 
 	switch (ace) {
 	case 0x0:
-		tp->ecn_fail = 1;
 		// [CY] 3.2.2.1. ACE Field on the ACK of the SYN/ACK - If the Server is in AccECN mode and in SYN-RCVD 
 		// state, and if it receives a value of zero on a pure ACK with SYN=0 and no SACK blocks, for the rest
 		// of the connection the Server MUST NOT set ECT on outgoing packets and MUST NOT respond to AccECN 
 		// feedback. Nonetheless, as a Data Receiver it MUST NOT disable AccECN feedback.
-		if (!TCP_SKB_CB(skb)->sacked) {
-		    tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
-		    verify_ace = false;
-		}
+		tp->ecn_fail = 1;
+		tp->accecn_no_process = 1;
+		//INET_ECN_dontxmit(sk);
+		//if (!TCP_SKB_CB(skb)->sacked) {
+		//    tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
+		//    verify_ace = false;
+		//}
 		break;
 	case 0x7:
 	case 0x5:
@@ -432,14 +433,13 @@ bool tcp_accecn_third_ack(struct sock *sk, const struct sk_buff *skb,
 		}
 		break;
 	}
-	return verify_ace;
 }
 
 static void tcp_ecn_openreq_child(struct sock *sk,
-				  struct request_sock *req,
+				  const struct request_sock *req,
 				  const struct sk_buff *skb)
 {
-	struct tcp_request_sock *treq = tcp_rsk(req);
+	const struct tcp_request_sock *treq = tcp_rsk(req);
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	// [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on 
@@ -447,13 +447,10 @@ static void tcp_ecn_openreq_child(struct sock *sk,
 	// SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake.
 	if (treq->accecn_ok) {
 	    const struct tcphdr *th = (const struct tcphdr *)skb->data;
-	    if (tcp_accecn_third_ack(sk, skb, req, treq->syn_ect_snt)) {
-	        tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
-	        tp->saw_accecn_opt = treq->saw_accecn_opt;
-	    } else {
-		tp->saw_accecn_opt = TCP_ACCECN_OPT_FAIL;
-	    }
+	    tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
 	    tp->syn_ect_snt = treq->syn_ect_snt;
+	    tcp_accecn_third_ack(sk, skb, treq->syn_ect_snt);
+	    tp->saw_accecn_opt = treq->saw_accecn_opt;
 	    tp->prev_ecnfield = treq->syn_ect_rcv;
 	    tp->accecn_opt_demand = 1;
 	    tcp_ecn_received_counters(sk, skb, skb->len - th->doff * 4);
@@ -723,7 +720,7 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 			// any packet for the rest of the connection, if it has received or sent at least one valid 
 			// SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake
 			    tcp_sk(sk)->ecn_fail = 1;
-			    INET_ECN_dontxmit(sk);
+			    //INET_ECN_dontxmit(sk);
 			}
 		    }
 

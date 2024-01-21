@@ -126,8 +126,7 @@ struct tcp_request_sock {
 #if IS_ENABLED(CONFIG_MPTCP)
 	bool				drop_req;
 #endif
-	u8				noect : 1,
-					accecn_ok  : 1,
+	u8				accecn_ok  : 1,
 					saw_accecn_opt : 2,
 					syn_ect_snt: 2,
 					syn_ect_rcv: 2;
@@ -234,6 +233,7 @@ struct tcp_sock {
 		syn_ect_snt:2,	/* AccECN ECT memory, only */
 		syn_ect_rcv:2,	/* ... needed durign 3WHS + first seqno */
 		ecn_fail:1;	/* ECN reflector detected path mangling */
+	u8	accecn_no_process:1; /* AccECN no response on feedback */
 	u8	saw_accecn_opt:2,    /* An AccECN option was seen */
 		fast_ack_mode:2, /* which fast ack mode ? */
 		unused:4;

@@ -595,7 +595,7 @@ static bool tcp_accecn_process_option(struct tcp_sock *tp,
 	bool order1, res;
 	unsigned int i;
 
-	if (tp->saw_accecn_opt == TCP_ACCECN_OPT_FAIL)
+	if (tp->saw_accecn_opt == TCP_ACCECN_OPT_FAIL || tp->accecn_no_process)
 		return false;
 
 	if (!(flag & FLAG_SLOWPATH) || !tp->rx_opt.accecn) {
@@ -7017,7 +7017,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 
 		tcp_initialize_rcv_mss(sk);
 		if (tcp_ecn_mode_accecn(tp))
-			tcp_accecn_third_ack(sk, skb, req, tp->syn_ect_snt);
+			tcp_accecn_third_ack(sk, skb, tp->syn_ect_snt);
 		tcp_fast_path_on(tp);
 		break;
 
@@ -7218,7 +7218,6 @@ static void tcp_openreq_init(struct request_sock *req,
 	tcp_rsk(req)->rcv_nxt = TCP_SKB_CB(skb)->seq + 1;
 	tcp_rsk(req)->snt_synack = 0;
 	tcp_rsk(req)->last_oow_ack_time = 0;
-	tcp_rsk(req)->noect = 0;
 	tcp_rsk(req)->accecn_ok = 0;
 	tcp_rsk(req)->saw_accecn_opt = 0;
 	tcp_rsk(req)->syn_ect_rcv = 0;
