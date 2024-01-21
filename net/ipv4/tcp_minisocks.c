@@ -398,7 +398,7 @@ void tcp_openreq_init_rwin(struct request_sock *req,
 EXPORT_SYMBOL(tcp_openreq_init_rwin);
 
 void tcp_accecn_third_ack(struct sock *sk, const struct sk_buff *skb,
-		          u8 syn_ect_snt)
+			  u8 syn_ect_snt)
 {
 	u8 ace = tcp_accecn_ace(tcp_hdr(skb));
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -446,18 +446,18 @@ static void tcp_ecn_openreq_child(struct sock *sk,
 	// any packet for the rest of the connection, if it has received or sent at least one valid 
 	// SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake.
 	if (treq->accecn_ok) {
-	    const struct tcphdr *th = (const struct tcphdr *)skb->data;
-	    tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
-	    tp->syn_ect_snt = treq->syn_ect_snt;
-	    tcp_accecn_third_ack(sk, skb, treq->syn_ect_snt);
-	    tp->saw_accecn_opt = treq->saw_accecn_opt;
-	    tp->prev_ecnfield = treq->syn_ect_rcv;
-	    tp->accecn_opt_demand = 1;
-	    tcp_ecn_received_counters(sk, skb, skb->len - th->doff * 4);
+		const struct tcphdr *th = (const struct tcphdr *)skb->data;
+		tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
+		tp->syn_ect_snt = treq->syn_ect_snt;
+		tcp_accecn_third_ack(sk, skb, treq->syn_ect_snt);
+		tp->saw_accecn_opt = treq->saw_accecn_opt;
+		tp->prev_ecnfield = treq->syn_ect_rcv;
+		tp->accecn_opt_demand = 1;
+		tcp_ecn_received_counters(sk, skb, skb->len - th->doff * 4);
 	} else {
-	    tcp_ecn_mode_set(tp, inet_rsk(req)->ecn_ok && !tcp_ca_no_fallback_rfc3168(sk) ?
-	    		     TCP_ECN_MODE_RFC3168 :
-	    		     TCP_ECN_DISABLED);
+		tcp_ecn_mode_set(tp, inet_rsk(req)->ecn_ok && !tcp_ca_no_fallback_rfc3168(sk) ?
+				     TCP_ECN_MODE_RFC3168 :
+				     TCP_ECN_DISABLED);
 	}
 }
 

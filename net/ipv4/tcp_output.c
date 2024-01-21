@@ -378,7 +378,7 @@ static void tcp_accecn_echo_syn_ect(struct tcphdr *th, u8 ect)
 }
 
 static void
-tcp_ecn_make_synack(struct sock *sk, struct request_sock *req, struct tcphdr *th)
+tcp_ecn_make_synack(struct sock *sk, const struct request_sock *req, struct tcphdr *th)
 {
 	if (req->num_timeout < 2) {
 		if (tcp_rsk(req)->accecn_ok)
