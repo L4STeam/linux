@@ -380,7 +380,7 @@ static void tcp_accecn_echo_syn_ect(struct tcphdr *th, u8 ect)
 static void
 tcp_ecn_make_synack(struct sock *sk, const struct request_sock *req, struct tcphdr *th)
 {
-	if (req->num_timeout < 2) {
+	if (!req->is_rtx || req->num_timeout < 1) {
 		if (tcp_rsk(req)->accecn_ok)
 		    tcp_accecn_echo_syn_ect(th, tcp_rsk(req)->syn_ect_rcv);
 		else if (inet_rsk(req)->ecn_ok)
@@ -1107,7 +1107,7 @@ static unsigned int tcp_synack_options(const struct sock *sk,
 	// [CY] 3.2.3.2.2. Testing for Loss of Packets Carrying the AccECN Option - TCP Server SHOULD retransmit the 
 	// SYN/ACK, but with no AccECN Option
 	if (treq->accecn_ok && sock_net(sk)->ipv4.sysctl_tcp_ecn_option &&
-	    req->num_timeout < 1 && (remaining >= TCPOLEN_ACCECN_BASE)) {
+	    !req->is_rtx && (remaining >= TCPOLEN_ACCECN_BASE)) {
 		opts->ecn_bytes = synack_ecn_bytes;
 		remaining -= tcp_options_fit_accecn(opts, 0, remaining,
 						    tcp_synack_options_combine_saving(opts));
