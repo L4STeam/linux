@@ -411,11 +411,6 @@ void tcp_accecn_third_ack(struct sock *sk, const struct sk_buff *skb,
 		// feedback. Nonetheless, as a Data Receiver it MUST NOT disable AccECN feedback.
 		tp->ecn_fail = 1;
 		tp->accecn_no_process = 1;
-		//INET_ECN_dontxmit(sk);
-		//if (!TCP_SKB_CB(skb)->sacked) {
-		//    tcp_ecn_mode_set(tp, TCP_ECN_DISABLED);
-		//    verify_ace = false;
-		//}
 		break;
 	case 0x7:
 	case 0x5:
@@ -720,7 +715,6 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 			// any packet for the rest of the connection, if it has received or sent at least one valid 
 			// SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake
 			    tcp_sk(sk)->ecn_fail = 1;
-			    //INET_ECN_dontxmit(sk);
 			}
 		    }
 
