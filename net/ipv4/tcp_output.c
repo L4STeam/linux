@@ -3451,12 +3451,20 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
 			tcp_retrans_try_collapse(sk, skb, avail_wnd);
 	}
 
-	/* RFC3168, section 6.1.1.1. ECN fallback
-	 * As AccECN uses the same SYN flags (+ AE), this check covers both
-	 * cases.
+	/* [CY] 3.1.4.1. Retransmitted SYNs - If the sender of an AccECN SYN (the TCP Client) times out before receiving the SYN/ACK,
+	 * it SHOULD attempt to negotiate the use of AccECN at least one more time by continuing to set all three TCP ECN flags
+	 * (AE,CWR,ECE) = (1,1,1) on the first retransmitted SYN (using the usual retransmission time-outs). If this first
+	 * retransmission also fails to be acknowledged, in deployment scenarios where AccECN path traversal might be problematic, the
+	 * TCP Client SHOULD send subsequent retransmissions of the SYN with the three TCP-ECN flags cleared (AE,CWR,ECE) = (0,0,0).
 	 */
-	if ((TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN_ECN) == TCPHDR_SYN_ECN)
-		tcp_ecn_clear_syn(sk, skb);
+	if (!tcp_ecn_mode_pending(tp) || icsk->icsk_retransmits > 1) {
+		/* RFC3168, section 6.1.1.1. ECN fallback
+		 * As AccECN uses the same SYN flags (+ AE), this check covers both
+		 * cases.
+		 */
+		if ((TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN_ECN) == TCPHDR_SYN_ECN)
+			tcp_ecn_clear_syn(sk, skb);
+	}
 
 	/* Update global and local TCP statistics. */
 	segs = tcp_skb_pcount(skb);
