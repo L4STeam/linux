@@ -104,6 +104,7 @@
 #define RATE_OFFSET		4
 #define OFFSET_UNIT		7
 #define HSRTT_SHIFT		7
+#define DEFAULT_MODE		0		/* 0: win-base; 1: rate-base */
 
 #define PRAGUE_MAX_SRTT_BITS	18U
 #define PRAGUE_MAX_MDEV_BITS	(PRAGUE_MAX_SRTT_BITS+1)
@@ -543,7 +544,7 @@ static void prague_update_alpha(struct sock *sk)
 		}
 	}
 skip:
-	ca->hsrtt_us = ca->hsrtt_us - (ca->hsrtt_us >> HSRTT_SHIFT) + tp->srtt_us;
+	ca->hsrtt_us = ca->hsrtt_us + (u64)tp->srtt_us - (ca->hsrtt_us >> HSRTT_SHIFT);
 	prague_new_round(sk);
 }
 
@@ -906,7 +907,7 @@ static void prague_init(struct sock *sk)
 
 	tp->classic_ecn = 0ULL;
 	tp->alpha = PRAGUE_MAX_ALPHA;		/* Used ONLY to log alpha */
-	ca->cwnd_mode = 0;
+	ca->cwnd_mode = DEFAULT_MODE;
 	prague_new_round(sk);
 }
 
