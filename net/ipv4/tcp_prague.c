@@ -680,26 +680,21 @@ static void prague_enter_cwr(struct sock *sk)
 	u64 reduction;
 	u64 alpha;
 
+	if (prague_is_rtt_indep(sk) &&
+	    (prague_target_rtt(sk) >> 3) > tcp_stamp_us_delta(tp->tcp_mstamp,
+							      ca->cwr_stamp))
+		return;
+	ca->cwr_stamp = tp->tcp_mstamp;
+	alpha = ca->upscaled_alpha >> PRAGUE_SHIFT_G;
+
+	if (prague_ecn_fallback == 1 && tp->classic_ecn > L_STICKY)
+		alpha = prague_classic_ecn_fallback(tp, alpha);
+
 	if (prague_is_rtt_indep(sk) && (ca->cwnd_mode == 1 && likely(ca->saw_ce))) {
-		if ((prague_target_rtt(sk) >> 3) > tcp_stamp_us_delta(tp->tcp_mstamp,
-								      ca->cwr_stamp))
-			return;
-		ca->cwr_stamp = tp->tcp_mstamp;
-		alpha = ca->upscaled_alpha >> PRAGUE_SHIFT_G;
-
-		if (prague_ecn_fallback == 1 && tp->classic_ecn > L_STICKY)
-			alpha = prague_classic_ecn_fallback(tp, alpha);
-
 		reduction = mul_64_64_shift(ca->rate_bytes, alpha, PRAGUE_ALPHA_BITS + 1);
 		ca->rate_bytes = max_t(u64, ca->rate_bytes - reduction, MINIMUM_RATE);
 		ca->frac_cwnd = prague_pacing_rate_to_frac_cwnd(sk);
 	} else {
-		ca->cwr_stamp = tp->tcp_mstamp;
-		alpha = ca->upscaled_alpha >> PRAGUE_SHIFT_G;
-
-		if (prague_ecn_fallback == 1 && tp->classic_ecn > L_STICKY)
-			alpha = prague_classic_ecn_fallback(tp, alpha);
-
 		reduction = (alpha * (ca->frac_cwnd) +
 				/* Unbias the rounding by adding 1/2 */
 				PRAGUE_MAX_ALPHA) >>
