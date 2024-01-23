@@ -709,7 +709,7 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 			// [CY] 3.1.5. Implications of AccECN Mode - A TCP Server already in AccECN mode: SHOULD 
 			// acknowledge a valid SYN arriving with (AE,CWR,ECE) =(0,0,0) by emitting an AccECN SYN/ACK (with
 			// the appropriate combination of TCP-ECN flags to feed back the IP-ECN field of this latest SYN)
-			    tcp_sk(sk)->syn_ect_rcv = TCP_SKB_CB(skb)->ip_dsfield & INET_ECN_MASK;
+			    tcp_rsk(req)->syn_ect_rcv = TCP_SKB_CB(skb)->ip_dsfield & INET_ECN_MASK;
 
 			// [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on 
 			// any packet for the rest of the connection, if it has received or sent at least one valid 
