@@ -705,15 +705,16 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 					  &tcp_rsk(req)->last_oow_ack_time)) {
 
 		    if (tcp_rsk(req)->accecn_ok) {
+			/* [CY] 3.1.5 Implications of AccECN Mode - A host in AccECN mode that is feeding back the IP-ECN
+			 * field on a SYN or SYN/ACK: MUST feed back the IP-ECN field on the latest valid SYN or acceptable 
+			 * SYN/ACK to arrive.
+			 */ 
+			tcp_rsk(req)->syn_ect_rcv = TCP_SKB_CB(skb)->ip_dsfield & INET_ECN_MASK;
 			if (tcp_accecn_ace(tcp_hdr(skb)) == 0x0) {
-			// [CY] 3.1.5. Implications of AccECN Mode - A TCP Server already in AccECN mode: SHOULD 
-			// acknowledge a valid SYN arriving with (AE,CWR,ECE) =(0,0,0) by emitting an AccECN SYN/ACK (with
-			// the appropriate combination of TCP-ECN flags to feed back the IP-ECN field of this latest SYN)
-			    tcp_rsk(req)->syn_ect_rcv = TCP_SKB_CB(skb)->ip_dsfield & INET_ECN_MASK;
-
-			// [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on 
-			// any packet for the rest of the connection, if it has received or sent at least one valid 
-			// SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake
+			/* [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on 
+			 * any packet for the rest of the connection, if it has received or sent at least one valid 
+			 * SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake
+			 */
 			    tcp_sk(sk)->ecn_fail = 1;
 			}
 		    }
