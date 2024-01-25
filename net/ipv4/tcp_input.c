@@ -449,11 +449,11 @@ static void tcp_ecn_rcv_synack(struct sock *sk, const struct sk_buff *skb,
 		else
 		    tcp_ecn_mode_set(tp, TCP_ECN_MODE_RFC3168);
 		break;
-	// [CY] 3.1.2. Backward Compatibility - If a TCP Client has sent a SYN requesting AccECN feedback with 
-	// (AE,CWR,ECE) = (1,1,1) then receives a SYN/ACK with the currently reserved combination (AE,CWR,ECE) 
-	// = (1,0,1) but it does not have logic specific to such a combination, the Client MUST enable AccECN 
-	// mode as if the SYN/ACK confirmed that the Server supported AccECN and as if it fed back that the 
-	// IP-ECN field on the SYN had arrived unchanged.
+	/* [CY] 3.1.2. Backward Compatibility - If a TCP Client has sent a SYN requesting AccECN feedback with (AE,CWR,ECE) =
+	 * (1,1,1) then receives a SYN/ACK with the currently reserved combination (AE,CWR,ECE) = (1,0,1) but it does not
+	 * have logic specific to such a combination, the Client MUST enable AccECN mode as if the SYN/ACK confirmed that the
+	 * Server supported AccECN and as if it fed back that the IP-ECN field on the SYN had arrived unchanged.
+	 */
 	case 0x5:
 		if (tcp_ecn_mode_pending(tp)) {
 		    tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
@@ -595,7 +595,7 @@ static bool tcp_accecn_process_option(struct tcp_sock *tp,
 	bool order1, res;
 	unsigned int i;
 
-	if (tp->saw_accecn_opt == TCP_ACCECN_OPT_FAIL || tp->accecn_no_process)
+	if (tp->saw_accecn_opt == TCP_ACCECN_OPT_FAIL || tp->accecn_no_response)
 		return false;
 
 	if (!(flag & FLAG_SLOWPATH) || !tp->rx_opt.accecn) {
@@ -4893,8 +4893,19 @@ static void tcp_rcv_spurious_retrans(struct sock *sk, const struct sk_buff *skb)
 	 * DSACK state and change the txhash to re-route speculatively.
 	 */
 	if (TCP_SKB_CB(skb)->seq == tcp_sk(sk)->duplicate_sack[0].start_seq &&
-	    sk_rethink_txhash(sk))
+	    sk_rethink_txhash(sk)) {
 		NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPDUPLICATEDATAREHASH);
+		/* [CY] 3.2.3.2.2. Testing for Loss of Packets Carrying the AccECN Option - If a middlebox is dropping
+		 * packets with options it does not recognize, a host that is sending little or no data but mostly pure
+		 * ACKs will not inherently detect such losses. Such a host MAY detect loss of ACKs carrying the AccECN
+		 * Option by detecting whether the acknowledged data always reappears as a retransmission. In such cases,
+		 * the host SHOULD disable the sending of the AccECN Option for this half-connection.
+		 */
+			if (tcp_ecn_mode_accecn(tp))
+				tcp_sock(sk)->accecn_no_options = 1;
+		}
+
+	}
 }
 
 static void tcp_send_dupack(struct sock *sk, const struct sk_buff *skb)
@@ -6235,8 +6246,8 @@ static bool tcp_validate_incoming(struct sock *sk, struct sk_buff *skb,
 	if (th->syn) {
 		if (tcp_ecn_mode_accecn(tp)) {
 			send_accecn_reflector = true;
-			/* [CY] 3.1.5. Implications of AccECN Mode - A host in AccECN mode that is feeding back the IP-ECN 
-			 * field on a SYN or SYN/ACK: MUST feed back the IP-ECN field on the latest valid SYN or acceptable 
+			/* [CY] 3.1.5. Implications of AccECN Mode - A host in AccECN mode that is feeding back the IP-ECN
+			 * field on a SYN or SYN/ACK: MUST feed back the IP-ECN field on the latest valid SYN or acceptable
 			 * SYN/ACK to arrive.”
 			 */
 			tp->syn_ect_rcv = TCP_SKB_CB(skb)->ip_dsfield & INET_ECN_MASK;

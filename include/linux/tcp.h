@@ -233,7 +233,8 @@ struct tcp_sock {
 		syn_ect_snt:2,	/* AccECN ECT memory, only */
 		syn_ect_rcv:2,	/* ... needed durign 3WHS + first seqno */
 		ecn_fail:1;	/* ECN reflector detected path mangling */
-	u8	accecn_no_process:1; /* AccECN no response on feedback */
+	u8	accecn_no_process:1, /* AccECN no response on feedback */
+		accecn_no_options:1;
 	u8	saw_accecn_opt:2,    /* An AccECN option was seen */
 		fast_ack_mode:2, /* which fast ack mode ? */
 		unused:4;
