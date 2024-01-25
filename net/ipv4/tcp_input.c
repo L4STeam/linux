@@ -595,7 +595,7 @@ static bool tcp_accecn_process_option(struct tcp_sock *tp,
 	bool order1, res;
 	unsigned int i;
 
-	if (tp->saw_accecn_opt == TCP_ACCECN_OPT_FAIL || tp->accecn_no_response)
+	if (tp->saw_accecn_opt == TCP_ACCECN_OPT_FAIL || tp->accecn_no_respond)
 		return false;
 
 	if (!(flag & FLAG_SLOWPATH) || !tp->rx_opt.accecn) {

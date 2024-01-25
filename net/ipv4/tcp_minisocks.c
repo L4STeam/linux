@@ -410,7 +410,7 @@ void tcp_accecn_third_ack(struct sock *sk, const struct sk_buff *skb,
 		// of the connection the Server MUST NOT set ECT on outgoing packets and MUST NOT respond to AccECN
 		// feedback. Nonetheless, as a Data Receiver it MUST NOT disable AccECN feedback.
 		tp->ecn_fail = 1;
-		tp->accecn_no_response = 1;
+		tp->accecn_no_respond = 1;
 		break;
 	case 0x7:
 	case 0x5:
