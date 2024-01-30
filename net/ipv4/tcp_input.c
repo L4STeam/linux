@@ -4901,8 +4901,8 @@ static void tcp_rcv_spurious_retrans(struct sock *sk, const struct sk_buff *skb)
 		 * Option by detecting whether the acknowledged data always reappears as a retransmission. In such cases,
 		 * the host SHOULD disable the sending of the AccECN Option for this half-connection.
 		 */
-			if (tcp_ecn_mode_accecn(tcp_sock(sk)))
-				tcp_sock(sk)->accecn_no_options = 1;
+			if (tcp_ecn_mode_accecn(tcp_sk(sk)))
+				tcp_sk(sk)->accecn_no_options = 1;
 
 	}
 }
