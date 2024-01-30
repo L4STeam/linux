@@ -4903,7 +4903,6 @@ static void tcp_rcv_spurious_retrans(struct sock *sk, const struct sk_buff *skb)
 		 */
 			if (tcp_ecn_mode_accecn(tp))
 				tcp_sock(sk)->accecn_no_options = 1;
-		}
 
 	}
 }

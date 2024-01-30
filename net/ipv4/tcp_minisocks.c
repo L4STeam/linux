@@ -405,10 +405,11 @@ void tcp_accecn_third_ack(struct sock *sk, const struct sk_buff *skb,
 
 	switch (ace) {
 	case 0x0:
-		// [CY] 3.2.2.1. ACE Field on the ACK of the SYN/ACK - If the Server is in AccECN mode and in SYN-RCVD
-		// state, and if it receives a value of zero on a pure ACK with SYN=0 and no SACK blocks, for the rest
-		// of the connection the Server MUST NOT set ECT on outgoing packets and MUST NOT respond to AccECN
-		// feedback. Nonetheless, as a Data Receiver it MUST NOT disable AccECN feedback.
+		/* [CY] 3.2.2.1. ACE Field on the ACK of the SYN/ACK - If the Server is in AccECN mode and in SYN-RCVD
+		 * state, and if it receives a value of zero on a pure ACK with SYN=0 and no SACK blocks, for the rest
+		 * of the connection the Server MUST NOT set ECT on outgoing packets and MUST NOT respond to AccECN
+		 * feedback. Nonetheless, as a Data Receiver it MUST NOT disable AccECN feedback.
+		 */
 		tp->ecn_fail = 1;
 		tp->accecn_no_respond = 1;
 		break;
@@ -437,9 +438,10 @@ static void tcp_ecn_openreq_child(struct sock *sk,
 	const struct tcp_request_sock *treq = tcp_rsk(req);
 	struct tcp_sock *tp = tcp_sk(sk);
 
-	// [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on
-	// any packet for the rest of the connection, if it has received or sent at least one valid
-	// SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake.
+	/* [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT oni
+	 * any packet for the rest of the connection, if it has received or sent at least one valid
+	 * SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake.
+	 */
 	if (treq->accecn_ok) {
 		const struct tcphdr *th = (const struct tcphdr *)skb->data;
 		tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
