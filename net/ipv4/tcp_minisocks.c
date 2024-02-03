@@ -438,7 +438,7 @@ static void tcp_ecn_openreq_child(struct sock *sk,
 	const struct tcp_request_sock *treq = tcp_rsk(req);
 	struct tcp_sock *tp = tcp_sk(sk);
 
-	/* [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT oni
+	/* [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on
 	 * any packet for the rest of the connection, if it has received or sent at least one valid
 	 * SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake.
 	 */

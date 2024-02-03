@@ -703,6 +703,21 @@ static u32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 	if (flag & FLAG_SYN_ACKED)
 		return 0;
 
+	/* [CY] 3.2.2.4. Testing for Zeroing of the ACE Field - If AccECN has been successfully negotiated, the Data Sender
+	 * MAY check the value of the ACE counter in the first feedback packet (with or without data) that arrives after the
+	 * 3-way handshake.  If the value of this ACE field is found to be zero (0b000), for the remainder of the half-
+	 * connection the Data Sender ought to send non-ECN-capable packets and it is advised not to respond to any feedback
+	 * of CE markings.
+	 */
+	if (!tp->first_data_ack) {
+		tp->first_data_ack = 1;
+		if (!tcp_accecn_ace(tcp_hdr(skb))) {
+			tp->ecn_fail = 1;
+			tp->accecn_no_respond = 1;
+			return 0;
+		}
+	}
+
 	if (tp->received_ce_pending >= TCP_ACCECN_ACE_MAX_DELTA)
 		inet_csk(sk)->icsk_ack.pending |= ICSK_ACK_NOW;
 
