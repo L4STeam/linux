@@ -711,8 +711,9 @@ static u32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 	 */
 	if (!tp->first_data_ack) {
 		tp->first_data_ack = 1;
-		if (!tcp_accecn_ace(tcp_hdr(skb))) {
+		if (tcp_accecn_ace(tcp_hdr(skb)) == 0x0) {
 			tp->ecn_fail = 1;
+			INET_ECN_dontxmit(sk);
 			tp->accecn_no_respond = 1;
 			return 0;
 		}
