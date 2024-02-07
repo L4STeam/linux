@@ -449,11 +449,11 @@ static void tcp_ecn_rcv_synack(struct sock *sk, const struct sk_buff *skb,
 		else
 		    tcp_ecn_mode_set(tp, TCP_ECN_MODE_RFC3168);
 		break;
-	// [CY] 3.1.2. Backward Compatibility - If a TCP Client has sent a SYN requesting AccECN feedback with 
-	// (AE,CWR,ECE) = (1,1,1) then receives a SYN/ACK with the currently reserved combination (AE,CWR,ECE) 
-	// = (1,0,1) but it does not have logic specific to such a combination, the Client MUST enable AccECN 
-	// mode as if the SYN/ACK confirmed that the Server supported AccECN and as if it fed back that the 
-	// IP-ECN field on the SYN had arrived unchanged.
+	/* [CY] 3.1.2. Backward Compatibility - If a TCP Client has sent a SYN requesting AccECN feedback with (AE,CWR,ECE) =
+	 * (1,1,1) then receives a SYN/ACK with the currently reserved combination (AE,CWR,ECE) = (1,0,1) but it does not
+	 * have logic specific to such a combination, the Client MUST enable AccECN mode as if the SYN/ACK confirmed that the
+	 * Server supported AccECN and as if it fed back that the IP-ECN field on the SYN had arrived unchanged.
+	 */
 	case 0x5:
 		if (tcp_ecn_mode_pending(tp)) {
 		    tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
@@ -595,7 +595,7 @@ static bool tcp_accecn_process_option(struct tcp_sock *tp,
 	bool order1, res;
 	unsigned int i;
 
-	if (tp->saw_accecn_opt == TCP_ACCECN_OPT_FAIL)
+	if (tp->saw_accecn_opt == TCP_ACCECN_OPT_FAIL || tp->accecn_no_respond)
 		return false;
 
 	if (!(flag & FLAG_SLOWPATH) || !tp->rx_opt.accecn) {
@@ -702,6 +702,22 @@ static u32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 	/* ACE field is not available during handshake */
 	if (flag & FLAG_SYN_ACKED)
 		return 0;
+
+	/* [CY] 3.2.2.4. Testing for Zeroing of the ACE Field - If AccECN has been successfully negotiated, the Data Sender
+	 * MAY check the value of the ACE counter in the first feedback packet (with or without data) that arrives after the
+	 * 3-way handshake.  If the value of this ACE field is found to be zero (0b000), for the remainder of the half-
+	 * connection the Data Sender ought to send non-ECN-capable packets and it is advised not to respond to any feedback
+	 * of CE markings.
+	 */
+	if (!tp->first_data_ack) {
+		tp->first_data_ack = 1;
+		if (tcp_accecn_ace(tcp_hdr(skb)) == 0x0) {
+			tp->ecn_fail = 1;
+			INET_ECN_dontxmit(sk);
+			tp->accecn_no_respond = 1;
+			return 0;
+		}
+	}
 
 	if (tp->received_ce_pending >= TCP_ACCECN_ACE_MAX_DELTA)
 		inet_csk(sk)->icsk_ack.pending |= ICSK_ACK_NOW;
@@ -4893,8 +4909,18 @@ static void tcp_rcv_spurious_retrans(struct sock *sk, const struct sk_buff *skb)
 	 * DSACK state and change the txhash to re-route speculatively.
 	 */
 	if (TCP_SKB_CB(skb)->seq == tcp_sk(sk)->duplicate_sack[0].start_seq &&
-	    sk_rethink_txhash(sk))
+	    sk_rethink_txhash(sk)) {
 		NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPDUPLICATEDATAREHASH);
+		/* [CY] 3.2.3.2.2. Testing for Loss of Packets Carrying the AccECN Option - If a middlebox is dropping
+		 * packets with options it does not recognize, a host that is sending little or no data but mostly pure
+		 * ACKs will not inherently detect such losses. Such a host MAY detect loss of ACKs carrying the AccECN
+		 * Option by detecting whether the acknowledged data always reappears as a retransmission. In such cases,
+		 * the host SHOULD disable the sending of the AccECN Option for this half-connection.
+		 */
+			if (tcp_ecn_mode_accecn(tcp_sk(sk)))
+				tcp_sk(sk)->accecn_no_options = 1;
+
+	}
 }
 
 static void tcp_send_dupack(struct sock *sk, const struct sk_buff *skb)
@@ -6235,6 +6261,11 @@ static bool tcp_validate_incoming(struct sock *sk, struct sk_buff *skb,
 	if (th->syn) {
 		if (tcp_ecn_mode_accecn(tp)) {
 			send_accecn_reflector = true;
+			/* [CY] 3.1.5. Implications of AccECN Mode - A host in AccECN mode that is feeding back the IP-ECN
+			 * field on a SYN or SYN/ACK: MUST feed back the IP-ECN field on the latest valid SYN or acceptable
+			 * SYN/ACK to arrive.”
+			 */
+			tp->syn_ect_rcv = TCP_SKB_CB(skb)->ip_dsfield & INET_ECN_MASK;
 			if (tp->rx_opt.accecn &&
 			    tp->saw_accecn_opt < TCP_ACCECN_OPT_COUNTER_SEEN) {
 				tp->saw_accecn_opt = tcp_accecn_option_init(skb,
@@ -7017,7 +7048,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 
 		tcp_initialize_rcv_mss(sk);
 		if (tcp_ecn_mode_accecn(tp))
-			tcp_accecn_third_ack(sk, skb, req, tp->syn_ect_snt);
+			tcp_accecn_third_ack(sk, skb, tp->syn_ect_snt);
 		tcp_fast_path_on(tp);
 		break;
 
@@ -7218,7 +7249,6 @@ static void tcp_openreq_init(struct request_sock *req,
 	tcp_rsk(req)->rcv_nxt = TCP_SKB_CB(skb)->seq + 1;
 	tcp_rsk(req)->snt_synack = 0;
 	tcp_rsk(req)->last_oow_ack_time = 0;
-	tcp_rsk(req)->noect = 0;
 	tcp_rsk(req)->accecn_ok = 0;
 	tcp_rsk(req)->saw_accecn_opt = 0;
 	tcp_rsk(req)->syn_ect_rcv = 0;

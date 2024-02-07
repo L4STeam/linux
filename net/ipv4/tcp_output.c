@@ -378,26 +378,26 @@ static void tcp_accecn_echo_syn_ect(struct tcphdr *th, u8 ect)
 }
 
 static void
-tcp_ecn_make_synack(struct sock *sk, struct request_sock *req, struct tcphdr *th)
+tcp_ecn_make_synack(struct sock *sk, const struct request_sock *req, struct tcphdr *th)
 {
-	if (req->num_timeout < 2) {
+	if (!req->is_rtx || req->num_timeout < 1) {
 		if (tcp_rsk(req)->accecn_ok)
 		    tcp_accecn_echo_syn_ect(th, tcp_rsk(req)->syn_ect_rcv);
 		else if (inet_rsk(req)->ecn_ok)
 		    th->ece = 1;
 	} else if (tcp_rsk(req)->accecn_ok) {
-	// [CY] 3.2.3.2.2. Testing for Loss of Packets Carrying the AccECN Option - If this retransmission times out, 
-	// to expedite connection setup, the TCP Server SHOULD retransmit the SYN/ACK with (AE,CWR,ECE) = (0,0,0) and 
-	// no AccECN Option, but it remains in AccECN feedback mode
+	/* [CY] 3.2.3.2.2. Testing for Loss of Packets Carrying the AccECN Option - If this retransmission times out,
+	 * to expedite connection setup, the TCP Server SHOULD retransmit the SYN/ACK with (AE,CWR,ECE) = (0,0,0) and
+	 * no AccECN Option, but it remains in AccECN feedback mode
+	 */
 		th->ae  = 0;
 		th->cwr = 0;
 		th->ece = 0;
-
-	// [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on 
-	// any packet for the rest of the connection, if it has received or sent at least one valid 
-	// SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake.
-		tcp_rsk(req)->noect = 1;
-		INET_ECN_dontxmit(sk);
+	/* [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on any packet for
+	 * the rest of the connection, if it has received or sent at least one valid SYN or Acceptable SYN/ACK with
+	 * (AE,CWR,ECE) = (0,0,0) during the handshake.
+	 */
+		tcp_sk(sk)->ecn_fail = 1;
 	}
 }
 
@@ -1105,10 +1105,11 @@ static unsigned int tcp_synack_options(const struct sock *sk,
 
 	smc_set_option_cond(tcp_sk(sk), ireq, opts, &remaining);
 
-	// [CY] 3.2.3.2.2. Testing for Loss of Packets Carrying the AccECN Option - TCP Server SHOULD retransmit the 
-	// SYN/ACK, but with no AccECN Option
+	/* [CY] 3.2.3.2.2. Testing for Loss of Packets Carrying the AccECN Option - TCP Server SHOULD retransmit the
+	 * SYN/ACK, but with no AccECN Option
+	 */
 	if (treq->accecn_ok && sock_net(sk)->ipv4.sysctl_tcp_ecn_option &&
-	    req->num_timeout < 1 && (remaining >= TCPOLEN_ACCECN_BASE)) {
+	    !req->is_rtx && (remaining >= TCPOLEN_ACCECN_BASE)) {
 		opts->ecn_bytes = synack_ecn_bytes;
 		remaining -= tcp_options_fit_accecn(opts, 0, remaining,
 						    tcp_synack_options_combine_saving(opts));
@@ -1188,7 +1189,7 @@ static unsigned int tcp_established_options(struct sock *sk, struct sk_buff *skb
 
 	if (tcp_ecn_mode_accecn(tp) &&
 	    sock_net(sk)->ipv4.sysctl_tcp_ecn_option &&
-	    (tp->saw_accecn_opt && tp->saw_accecn_opt != TCP_ACCECN_OPT_FAIL)) {
+	    (tp->saw_accecn_opt && tp->saw_accecn_opt != TCP_ACCECN_OPT_FAIL && !tp->accecn_no_options)) {
 		if (sock_net(sk)->ipv4.sysctl_tcp_ecn_option >= 2 ||
 		    tp->accecn_opt_demand ||
 		    tcp_accecn_option_beacon_check(sk)) {
@@ -3452,12 +3453,20 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
 			tcp_retrans_try_collapse(sk, skb, avail_wnd);
 	}
 
-	/* RFC3168, section 6.1.1.1. ECN fallback
-	 * As AccECN uses the same SYN flags (+ AE), this check covers both
-	 * cases.
+	/* [CY] 3.1.4.1. Retransmitted SYNs - If the sender of an AccECN SYN (the TCP Client) times out before receiving the SYN/ACK,
+	 * it SHOULD attempt to negotiate the use of AccECN at least one more time by continuing to set all three TCP ECN flags
+	 * (AE,CWR,ECE) = (1,1,1) on the first retransmitted SYN (using the usual retransmission time-outs). If this first
+	 * retransmission also fails to be acknowledged, in deployment scenarios where AccECN path traversal might be problematic, the
+	 * TCP Client SHOULD send subsequent retransmissions of the SYN with the three TCP-ECN flags cleared (AE,CWR,ECE) = (0,0,0).
 	 */
-	if ((TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN_ECN) == TCPHDR_SYN_ECN)
-		tcp_ecn_clear_syn(sk, skb);
+	if (!tcp_ecn_mode_pending(tp) || icsk->icsk_retransmits > 1) {
+		/* RFC3168, section 6.1.1.1. ECN fallback
+		 * As AccECN uses the same SYN flags (+ AE), this check covers both
+		 * cases.
+		 */
+		if ((TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN_ECN) == TCPHDR_SYN_ECN)
+			tcp_ecn_clear_syn(sk, skb);
+	}
 
 	/* Update global and local TCP statistics. */
 	segs = tcp_skb_pcount(skb);
