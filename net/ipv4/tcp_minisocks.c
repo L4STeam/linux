@@ -405,7 +405,13 @@ void tcp_accecn_third_ack(struct sock *sk, const struct sk_buff *skb,
 
 	switch (ace) {
 	case 0x0:
+		/* [CY] 3.2.2.1. ACE Field on the ACK of the SYN/ACK - If the Server is in AccECN mode and in SYN-RCVD
+		 * state, and if it receives a value of zero on a pure ACK with SYN=0 and no SACK blocks, for the rest
+		 * of the connection the Server MUST NOT set ECT on outgoing packets and MUST NOT respond to AccECN
+		 * feedback. Nonetheless, as a Data Receiver it MUST NOT disable AccECN feedback.
+		 */
 		tp->ecn_fail = 1;
+		tp->accecn_no_respond = 1;
 		break;
 	case 0x7:
 	case 0x5:
@@ -432,6 +438,10 @@ static void tcp_ecn_openreq_child(struct sock *sk,
 	const struct tcp_request_sock *treq = tcp_rsk(req);
 	struct tcp_sock *tp = tcp_sk(sk);
 
+	/* [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on
+	 * any packet for the rest of the connection, if it has received or sent at least one valid
+	 * SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake.
+	 */
 	if (treq->accecn_ok) {
 		const struct tcphdr *th = (const struct tcphdr *)skb->data;
 		tcp_ecn_mode_set(tp, TCP_ECN_MODE_ACCECN);
@@ -694,9 +704,24 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 		 */
 		if (!tcp_oow_rate_limited(sock_net(sk), skb,
 					  LINUX_MIB_TCPACKSKIPPEDSYNRECV,
-					  &tcp_rsk(req)->last_oow_ack_time) &&
+					  &tcp_rsk(req)->last_oow_ack_time)) {
 
-		    !inet_rtx_syn_ack(sk, req)) {
+		    if (tcp_rsk(req)->accecn_ok) {
+			/* [CY] 3.1.5 Implications of AccECN Mode - A host in AccECN mode that is feeding back the IP-ECN
+			 * field on a SYN or SYN/ACK: MUST feed back the IP-ECN field on the latest valid SYN or acceptable
+			 * SYN/ACK to arrive.
+			 */ 
+			tcp_rsk(req)->syn_ect_rcv = TCP_SKB_CB(skb)->ip_dsfield & INET_ECN_MASK;
+			if (tcp_accecn_ace(tcp_hdr(skb)) == 0x0) {
+			/* [CY] 3.1.5. Implications of AccECN Mode - A TCP Server in AccECN mode: MUST NOT set ECT on
+			 * any packet for the rest of the connection, if it has received or sent at least one valid
+			 * SYN or Acceptable SYN/ACK with (AE,CWR,ECE) = (0,0,0) during the handshake
+			 */
+			    tcp_sk(sk)->ecn_fail = 1;
+			}
+		    }
+
+		    if (!inet_rtx_syn_ack(sk, req)) {
 			unsigned long expires = jiffies;
 
 			expires += min(TCP_TIMEOUT_INIT << req->num_timeout,
@@ -705,6 +730,7 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 				mod_timer_pending(&req->rsk_timer, expires);
 			else
 				req->rsk_timer.expires = expires;
+		    }
 		}
 		return NULL;
 	}

@@ -431,6 +431,12 @@ tcp_ecn_option - INTEGER
 
 	Default: 2
 
+tcp_ecn_option_beacon - INTEGER
+        Control Accurate ECN (AccECN) option sending frequency per RTT and it 
+        takes effect only when tcp_ecn_option is set to 2.
+
+        Default: 1 (AccECN will be send at least 1 time per RTT)
+
 tcp_ecn_fallback - BOOLEAN
 	If the kernel detects that ECN connection misbehaves, enable fall
 	back to non-ECN. Currently, this knob implements the fallback
