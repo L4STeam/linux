@@ -11,7 +11,7 @@
 
 static inline bool virtio_net_hdr_match_proto(__be16 protocol, __u8 gso_type)
 {
-	switch (gso_type & ~VIRTIO_NET_HDR_GSO_ECN) {
+	switch (gso_type & ~VIRTIO_NET_HDR_GSO_ECN_FLAGS) {
 	case VIRTIO_NET_HDR_GSO_TCPV4:
 		return protocol == cpu_to_be16(ETH_P_IP);
 	case VIRTIO_NET_HDR_GSO_TCPV6:
@@ -31,7 +31,7 @@ static inline int virtio_net_hdr_set_proto(struct sk_buff *skb,
 	if (skb->protocol)
 		return 0;
 
-	switch (hdr->gso_type & ~VIRTIO_NET_HDR_GSO_ECN) {
+	switch (hdr->gso_type & ~VIRTIO_NET_HDR_GSO_ECN_FLAGS) {
 	case VIRTIO_NET_HDR_GSO_TCPV4:
 	case VIRTIO_NET_HDR_GSO_UDP:
 	case VIRTIO_NET_HDR_GSO_UDP_L4:
@@ -58,7 +58,7 @@ static inline int virtio_net_hdr_to_skb(struct sk_buff *skb,
 	unsigned int ip_proto;
 
 	if (hdr->gso_type != VIRTIO_NET_HDR_GSO_NONE) {
-		switch (hdr->gso_type & ~VIRTIO_NET_HDR_GSO_ECN) {
+		switch (hdr->gso_type & ~VIRTIO_NET_HDR_GSO_ECN_FLAGS) {
 		case VIRTIO_NET_HDR_GSO_TCPV4:
 			gso_type = SKB_GSO_TCPV4;
 			ip_proto = IPPROTO_TCP;
@@ -84,7 +84,9 @@ static inline int virtio_net_hdr_to_skb(struct sk_buff *skb,
 			return -EINVAL;
 		}
 
-		if (hdr->gso_type & VIRTIO_NET_HDR_GSO_ECN)
+		if (hdr->gso_type & VIRTIO_NET_HDR_GSO_ACCECN)
+			gso_type |= SKB_GSO_TCP_ACCECN;
+		else if (hdr->gso_type & VIRTIO_NET_HDR_GSO_ECN)
 			gso_type |= SKB_GSO_TCP_ECN;
 
 		if (hdr->gso_size == 0)
@@ -158,7 +160,7 @@ retry:
 		unsigned int nh_off = p_off;
 		struct skb_shared_info *shinfo = skb_shinfo(skb);
 
-		switch (gso_type & ~SKB_GSO_TCP_ECN) {
+		switch (gso_type & ~(SKB_GSO_TCP_ECN | SKB_GSO_TCP_ACCECN)) {
 		case SKB_GSO_UDP:
 			/* UFO may not include transport header in gso_size. */
 			nh_off -= thlen;
@@ -223,7 +225,9 @@ static inline int virtio_net_hdr_from_skb(const struct sk_buff *skb,
 			hdr->gso_type = VIRTIO_NET_HDR_GSO_UDP_L4;
 		else
 			return -EINVAL;
-		if (sinfo->gso_type & SKB_GSO_TCP_ECN)
+		if (sinfo->gso_type & SKB_GSO_TCP_ACCECN)
+			hdr->gso_type |= VIRTIO_NET_HDR_GSO_ACCECN;
+		else if (sinfo->gso_type & SKB_GSO_TCP_ECN)
 			hdr->gso_type |= VIRTIO_NET_HDR_GSO_ECN;
 	} else
 		hdr->gso_type = VIRTIO_NET_HDR_GSO_NONE;
