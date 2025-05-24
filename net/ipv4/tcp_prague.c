@@ -123,8 +123,8 @@
 #define C_STICKY	CLASSIC_ECN + \
 	L_STICKY			/* Pure classic behaviour */
 
-#define V0_LG	(10014683ULL >> V)	/* reference queue V of ~750us */
-#define D0_LG	(11498458ULL >> D)	/* reference queue D of ~2ms */
+#define V0_LG	(160234941ULL >> V)	/* reference queue V of ~750us */
+#define D0_LG	(183975331ULL >> D)	/* reference queue D of ~2ms */
 
 /* RTT cwnd scaling heuristics */
 enum {
