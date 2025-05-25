@@ -14,10 +14,10 @@ jobs:
         sudo env DEBIAN_FRONTEND=noninteractive apt-get -y update
         sudo env DEBIAN_FRONTEND=noninteractive apt-get -y install git fakeroot \
             libelf-dev libssl-dev flex bison coreutils build-essential \
-            xz-utils devscripts initramfs-tools wget linux-headers-5.15.0-60-generic
+            xz-utils devscripts initramfs-tools wget linux-headers-5.15.0-25-generic
     - name: Kernel config
       run: |
-        cp /usr/src/linux-headers-5.15.0-60-generic/.config .
+        cp /usr/src/linux-headers-5.15.0-25-generic/.config .
         scripts/config --disable DEBUG_INFO \
                        --set-str SYSTEM_TRUSTED_KEYS "" \
                        --set-str CONFIG_SYSTEM_REVOCATION_KEYS "" \
