@@ -53,7 +53,7 @@ jobs:
         mkdir -p debian_build
         mv -t debian_build ../linux-*.deb
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: prague-kernel
         path: debian_build
