@@ -639,7 +639,12 @@ enum {
 	/* This indicates the skb is from an untrusted source. */
 	SKB_GSO_DODGY = 1 << 1,
 
-	/* This indicates the tcp segment has CWR set. */
+	/* For Tx, this indicates the first TCP segment has CWR set, and any
+	 * subsequent segment in the same skb has CWR cleared. This cannot be
+	 * used on Rx, because the connection to which the segment belongs is
+	 * not tracked to use RFC3168 or Accurate ECN, and using RFC3168 ECN
+	 * offload may corrupt AccECN signal of AccECN segments.
+	 */
 	SKB_GSO_TCP_ECN = 1 << 2,
 
 	SKB_GSO_TCP_FIXEDID = 1 << 3,
@@ -674,6 +679,12 @@ enum {
 
 	SKB_GSO_FRAGLIST = 1 << 18,
 
+	/* For TX, this indicates the TCP segment uses the CWR flag as part of
+	 * AccECN signal, and the CWR flag is not modified in the skb. For RX,
+	 * any CWR flagged segment must use SKB_GSO_TCP_ACCECN. This is to
+	 * ensure the CWR flag is not cleared by any RFC3168 ECN offload, and
+	 * thus keeping AccECN signal of AccECN segments.
+	 */
 	SKB_GSO_TCP_ACCECN = 1 << 19,
 };
 
