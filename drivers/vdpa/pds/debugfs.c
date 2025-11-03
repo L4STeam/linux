@@ -78,6 +78,9 @@ static void print_feature_bits_all(struct seq_file *seq, u64 features)
 		case BIT_ULL(VIRTIO_NET_F_GUEST_ECN):
 			seq_puts(seq, " VIRTIO_NET_F_GUEST_ECN");
 			break;
+		case BIT_ULL(VIRTIO_NET_F_GUEST_ACCECN):
+			seq_puts(seq, " VIRTIO_NET_F_GUEST_ACCECN");
+			break;
 		case BIT_ULL(VIRTIO_NET_F_GUEST_UFO):
 			seq_puts(seq, " VIRTIO_NET_F_GUEST_UFO");
 			break;
@@ -89,6 +92,9 @@ static void print_feature_bits_all(struct seq_file *seq, u64 features)
 			break;
 		case BIT_ULL(VIRTIO_NET_F_HOST_ECN):
 			seq_puts(seq, " VIRTIO_NET_F_HOST_ECN");
+			break;
+		case BIT_ULL(VIRTIO_NET_F_HOST_ACCECN):
+			seq_puts(seq, " VIRTIO_NET_F_HOST_ACCECN");
 			break;
 		case BIT_ULL(VIRTIO_NET_F_HOST_UFO):
 			seq_puts(seq, " VIRTIO_NET_F_HOST_UFO");
