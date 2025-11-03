@@ -494,7 +494,7 @@ static void tcp_count_delivered(struct tcp_sock *tp, u32 delivered,
 /* Returns the ECN CE delta */
 static u32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 				u32 delivered_pkts, u32 delivered_bytes,
-				int flag)
+				u64 prior_bytes_acked, int flag)
 {
 	u32 old_ceb = tcp_sk(sk)->delivered_ecn_bytes[INET_ECN_CE - 1];
 	const struct tcphdr *th = tcp_hdr(skb);
@@ -532,6 +532,16 @@ static u32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 	/* ACE field is not available during handshake */
 	if (flag & FLAG_SYN_ACKED)
 		return 0;
+
+	///* Verify ACE!=0 in the 1st data ACK after AccECN negotiation */
+	//if ((flag & FLAG_DATA_ACKED) && prior_bytes_acked <= tp->mss_cache) {
+	//	if (tcp_accecn_ace(tcp_hdr(skb)) == 0x0) {
+	//		INET_ECN_dontxmit(sk);
+	//		tcp_accecn_fail_mode_set(tp, TCP_ACCECN_ACE_FAIL_RECV |
+	//					     TCP_ACCECN_OPT_FAIL_RECV);
+	//		return 0;
+	//	}
+	//}
 
 	if (tp->received_ce_pending >= TCP_ACCECN_ACE_MAX_DELTA)
 		inet_csk(sk)->icsk_ack.pending |= ICSK_ACK_NOW;
@@ -579,13 +589,13 @@ static u32 __tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 
 static u32 tcp_accecn_process(struct sock *sk, const struct sk_buff *skb,
 			      u32 delivered_pkts, u32 delivered_bytes,
-			      int *flag)
+			      u64 prior_bytes_acked, int *flag)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	u32 delta;
 
 	delta = __tcp_accecn_process(sk, skb, delivered_pkts,
-				     delivered_bytes, *flag);
+				     delivered_bytes, prior_bytes_acked, *flag);
 	if (delta > 0) {
 		tcp_count_delivered_ce(tp, delta);
 		*flag |= FLAG_ECE;
@@ -4137,6 +4147,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct tcp_sacktag_state sack_state;
 	struct rate_sample rs = { .prior_delivered = 0 };
+	u64 prior_bytes_acked = tp->bytes_acked;
 	u32 prior_snd_una = tp->snd_una;
 	bool is_sack_reneg = tp->is_sack_reneg;
 	u32 ack_seq = TCP_SKB_CB(skb)->seq;
@@ -4259,7 +4270,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 		ecn_count = tcp_accecn_process(sk, skb,
 					       tp->delivered - delivered,
 					       sack_state.delivered_bytes,
-					       &flag);
+					       prior_bytes_acked, &flag);
 
 	tcp_in_ack_event(sk, flag);
 
@@ -4299,7 +4310,8 @@ no_queue:
 		ecn_count = tcp_accecn_process(sk, skb,
 					       tp->delivered - delivered,
 					       sack_state.delivered_bytes,
-					       &flag);
+					       prior_bytes_acked, &flag);
+
 	tcp_in_ack_event(sk, flag);
 	/* If data was DSACKed, see if we can undo a cwnd reduction. */
 	if (flag & FLAG_DSACKING_ACK) {
