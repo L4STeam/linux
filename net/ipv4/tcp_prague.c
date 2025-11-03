@@ -445,17 +445,19 @@ static void prague_update_pacing_rate(struct sock *sk)
 			rate = ca->rate_bytes + offset;
 	} else {
 		mtu = tcp_mss_to_mtu(sk, tp->mss_cache);
-		max_inflight = max_t(u32, ca->frac_cwnd >> CWND_UNIT,
-				     tcp_packets_in_flight(tp));
+		max_inflight = max(tcp_snd_cwnd(tp),
+				   tcp_packets_in_flight(tp));
 		rate = (u64)((u64)USEC_PER_SEC << 3) * mtu;
+	}
+
+	if (tcp_snd_cwnd(tp) < tp->snd_ssthresh / 2)
+		rate <<= 1;
+	if (!prague_is_rtt_indep(sk) || ca->cwnd_mode == 0) {
 		if (likely(tp->srtt_us))
 			rate = div64_u64(rate, (u64)tp->srtt_us);
 		rate = max_t(u64, rate*max_inflight, MINIMUM_RATE);
 		ca->rate_bytes = rate;
 	}
-
-	if (tcp_snd_cwnd(tp) < tp->snd_ssthresh / 2)
-		rate <<= 1;
 
 	rate = min_t(u64, rate, sk->sk_max_pacing_rate);
 	burst = div_u64(rate, tcp_mss_to_mtu(sk, tp->mss_cache));
@@ -531,16 +533,7 @@ static void prague_update_alpha(struct sock *sk)
 			ca->frac_cwnd = div_u64(ca->frac_cwnd * mtu_used, mtu);
 			tp->mss_cache_set_by_cca = true;
 			tcp_sync_mss(sk, mtu);
-
-			u64 new_cwnd = prague_frac_cwnd_to_snd_cwnd(sk);
-
-			if (tcp_snd_cwnd(tp) != new_cwnd) {
-				tcp_snd_cwnd_set(tp, new_cwnd);
-				tp->snd_ssthresh = div_u64(tp->snd_ssthresh *
-							   mtu_used,
-							   mtu);
-				prague_cwnd_changed(sk);
-			}
+			tcp_snd_cwnd_set(tp, prague_frac_cwnd_to_snd_cwnd(sk));
 		}
 	}
 skip:
@@ -597,18 +590,11 @@ static void prague_update_cwnd(struct sock *sk, const struct rate_sample *rs)
 				      prague_pacing_rate_to_frac_cwnd(sk));
 	} else {
 		increase = acked * ca->ai_ack_increase;
-		new_cwnd = ca->frac_cwnd;
-		if (likely(new_cwnd)) {
-			increase <<= CWND_UNIT;
+		new_cwnd = tcp_snd_cwnd(tp);
+		if (likely(new_cwnd))
 			increase = DIV64_U64_ROUND_CLOSEST(increase, new_cwnd);
-		}
-		increase = div_u64(increase * MTU_SYS,
-				   tcp_mss_to_mtu(sk, tp->mss_cache));
+
 		ca->frac_cwnd += max_t(u64, acked, increase);
-
-		u64 rate = prague_frac_cwnd_to_pacing_rate(sk);
-
-		ca->rate_bytes = max_t(u64, ca->rate_bytes + acked, rate);
 	}
 
 adjust:
@@ -644,7 +630,6 @@ static void prague_enter_loss(struct sock *sk)
 		ca->frac_cwnd = prague_pacing_rate_to_frac_cwnd(sk);
 	} else {
 		ca->frac_cwnd -= (ca->frac_cwnd >> 1);
-		ca->rate_bytes = prague_frac_cwnd_to_pacing_rate(sk);
 	}
 	ca->in_loss = 1;
 }
@@ -675,7 +660,6 @@ static void prague_enter_cwr(struct sock *sk)
 			     PRAGUE_MAX_ALPHA) >>
 			     (PRAGUE_ALPHA_BITS + 1U);
 		ca->frac_cwnd -= reduction;
-		ca->rate_bytes = prague_frac_cwnd_to_pacing_rate(sk);
 	}
 }
 
@@ -738,6 +722,8 @@ static void prague_cong_control(struct sock *sk, u32 ack, int flag,
 			ca->cwnd_mode = 0;
 			ca->rate_bytes = prague_frac_cwnd_to_pacing_rate(sk);
 		}
+	} else if (unlikely(!ca->saw_ce)) {
+		ca->cwnd_mode = 0;
 	}
 }
 
