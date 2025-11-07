@@ -923,7 +923,7 @@ static int dualpi2_init(struct Qdisc *sch, struct nlattr *opt,
 
 	q->sch = sch;
 	dualpi2_reset_default(sch);
-	hrtimer_init(&q->pi2_timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS_PINNED);
+	hrtimer_init(&q->pi2_timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS_PINNED_SOFT);
 	q->pi2_timer.function = dualpi2_timer;
 
 	if (opt && nla_len(opt)) {
@@ -934,7 +934,7 @@ static int dualpi2_init(struct Qdisc *sch, struct nlattr *opt,
 	}
 
 	hrtimer_start(&q->pi2_timer, next_pi2_timeout(q),
-		      HRTIMER_MODE_ABS_PINNED);
+		      HRTIMER_MODE_ABS_PINNED_SOFT);
 	return 0;
 }
 
