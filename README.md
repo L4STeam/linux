@@ -1,19 +1,37 @@
+# Available Linux builds for the L4S features
+
+Linux mainlining the contents of this repository is ongoing. The current testing branch is in line with kernel 5.15, and is not maintained anymore (not in line with the latest (to) mainline(d) versions). Several later Kernel versions are available in this overview and updated last at Nov 2025):
+
+- Linux 5.15 (this repository at testing branch) and Linux 6.1 (not public, on request) is NOT actively maintained
+- Linux 6.6:
+    - Linux stable: [L4STeam/linux at l4steam-6.6.y](https://github.com/L4STeam/linux/tree/l4steam-6.6.y), prebuild zip at [https://github.com/L4STeam/linux/releases/download/l4steam-6.6.y-build/l4s-l4steam-6.6.y.zip]
+    - WSL2-Linux: [minuscat/linux-msft-wsl-6.6.y](https://github.com/minuscat/linux-msft-wsl-6.6.y), no prebuild, to be compiled on target
+    - RPI Linux: [minuscat/rpi-6.6.y](https://github.com/minuscat/rpi-6.6.y), no prebuild, to be compiled on target 
+- Linux 6.12:
+    - Linux stable: [L4STeam/linux at l4steam-6.12.y](https://github.com/L4STeam/linux/tree/l4steam-6.12.y), prebuild zip at [https://github.com/L4STeam/linux/releases/download/l4steam-6.12.y-build/l4s-l4steam-6.12.y.zip]
+- Latest Net-dev mainline synced (source for mainlining):
+    - Linux net-next: [L4STeam/linux-net-next](https://github.com/l4steam/linux-net-next), prebuild zip at [https://github.com/L4STeam/linux-net-next/releases/download/upstream_l4steam-build/l4s-upstream_l4steam.zip]
+
+At this time, the mainlining status is:
+- DualPI2 is part of mainline Linux from 6.17 onwards.
+- ACC-ECN is partly delivered (2/3th) in 6.18, but cannot be used yet, before all parts are complete.
+
 # Linux kernel tree with L4S patches
 
-This linux kernel repository contains the various patches developed in the context of the L4S experiment.
+The above linux kernel repository contains the various patches developed in the context of the L4S experiment.
 
 Namely:
-- The dualQ coupled AQM (see branch sch_dualpi2, as well as the [iproute2 repository](https://github.com/L4STeam/iproute2)
-- An implementation of Accurate ECN (see branch AccECN-full)
-- The base implementation of TCP Prague (see branch tcp_prague)
-- ECT(1) enabled DCTCP
-- ECT(1) enabled BBR v2 (from v2alpha branch in [BBR v2 repo](https://github.com/google/bbr))
+- The dualQ coupled AQM + iproute2 (mainlined already) so use latest Linux kernel.
+- Accurate ECN
+- TCP Prague
 
 # Installation (debian derivatives)
 
+download the prebuild zip file mentioned above (example with 6.6).
+
 ```bash
-wget https://github.com/L4STeam/linux/releases/download/testing-build/l4s-testing.zip
-unzip l4s-testing.zip
+wget https://github.com/L4STeam/linux/releases/download/l4steam-6.6.y-build/l4s-l4steam-6.6.y.zip
+unzip l4s-l4steam-6.6.y.zip
 sudo dpkg --install debian_build/*
 sudo update-grub  # This should auto-detect the new kernel
 # You can optionally set newly installed kernel as the default, e.g., editing GRUB_DEFAULT in /etc/default/grub
@@ -27,7 +45,7 @@ sudo modprobe tcp_prague
 
 ## This branch (testing)
 
-This branch accumulates all patches into a single kernel tree, in order to ease up testing.
+This branch is the original research branch, containing also all experimental code, which wasn't mainlined. Also note that many features that were mainlined, don't have the same default settings. 
 
 You can grab a pre-built debian archive of the kernel image and headers through the latest [actions artifacts](https://github.com/L4STeam/linux/actions). The tip of the master branch is also always build/packaged (alongside iproute2) and attached as pre-release artifact for the `testing-build` tag.
 
@@ -50,10 +68,16 @@ fi
 
 # Enable TCP Prague and dualpi2
 scripts/config -m TCP_CONG_PRAGUE
+scripts/config -m NET_CLS_U32
 scripts/config -m NET_SCH_DUALPI2
-# Optionally enable DCTCP and BBR v2
-scripts/config -m TCP_CONG_DCTCP
-scripts/config -m TCP_CONG_BBR2
+scripts/config -m NET_SCH_FQ \
+scripts/config -m NET_SCH_HTB
+scripts/config -m NET_SCH_NETEM
+scripts/config -m NET_SCH_INGRESS
+scripts/config -m NET_ACT_MIRRED
+scripts/config -m IFB
+scripts/config -m VETH
+scripts/config -m BRIDGE
 
 # Build the kernel
 make -j$(nproc) LOCALVERSION=-prague-1
@@ -87,7 +111,7 @@ tc/tc qdisc replace dev eth0 root dualpi2 ...
 
 # Performing experiments
 
-While dualpi2 can work with DCTCP, DCTCP suffers from a few unfortunate interactions with GSO/pacing/..., resulting in under-utilization. 
+While dualpi2 can work with DCTCP and BBR, DCTCP suffers from a few unfortunate interactions with GSO/pacing/..., resulting in under-utilization, and BBR is not designed for internet compatibility (rather for proprietary internal DataCenter traffic). 
 
 As a result, we advice you to use tcp_prague which currently has basic fixes to those limitations. 
 Note that this might still under-perform in heavily virtualized settings, as scheduling becomes less reliable.
@@ -98,7 +122,7 @@ Note that this might still under-perform in heavily virtualized settings, as sch
 sudo ethtool -K $NETIF tso off gso off gro off lro off
 # fq qdisc needs to be configured on clients and server NICS (instead of fq_codel; fq is the only one that supports the pacing)
 sudo tc qdisc replace dev $NETIF root handle 1: fq limit 20480 flow_limit 10240
-# Enable Accurate ECN (only needed for BBR2 and DCTCP, not needed for Prague)
+# Enable Accurate ECN (only needed for BBR and DCTCP, not needed for Prague)
 sysctl -w net.ipv4.tcp_ecn=3
 # set Prague congestion control system wide (or in the application with socket options)
 sysctl -w net.ipv4.tcp_congestion_control=prague
@@ -106,7 +130,7 @@ sysctl -w net.ipv4.tcp_congestion_control=prague
 
 ## Accurate ECN negotiation
 Prague attempts to negotiate Accurate ECN automatically.
-Note that, at the moment, Accurate ECN **must** be enabled on both ends of a connection in order it with DCTCP or BBR v2.
+Note that, at the moment, Accurate ECN **must** be enabled on both ends of a connection in order it with DCTCP or BBR, but as mentioned before, don't expect good and fair results with these CCs.
 
 
 Among 3 different congestion control algorthms (net.ipv4.tcp_congestion_control=prague/bbr2/cubic) and 4 differnet ECN configurations (net.ipv4.tcp_ecn=3/1/2/0), the negotiated ECN modes between server and client are as follows:
