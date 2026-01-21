@@ -83,10 +83,11 @@ jobs:
         mkdir debian_build
         mv *.deb debian_build
         zip -r l4s-${{ steps.extract_branch.outputs.branch }}.zip debian_build
-    - name: Release tip build
-      uses: pyTooling/Actions/releaser@main
+    - name: Create/Update GitHub Release for branch tip
+      uses: softprops/action-gh-release@v2
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        tag: ${{ steps.extract_branch.outputs.branch }}-build
+        tag_name: ${{ steps.extract_branch.outputs.branch }}-build
+        prerelease: true
         files: |
           l4s-${{ steps.extract_branch.outputs.branch }}.zip
