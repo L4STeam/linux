@@ -9,13 +9,20 @@ Linux mainlining the contents of this repository is ongoing. The current testing
     - RPI Linux: [minuscat/rpi-6.6.y](https://github.com/minuscat/rpi-6.6.y), no prebuild, to be compiled on target 
 - Linux 6.12:
     - Linux stable: [L4STeam/linux at l4steam-6.12.y](https://github.com/L4STeam/linux/tree/l4steam-6.12.y), prebuild zip at [https://github.com/L4STeam/linux/releases/download/l4steam-6.12.y-build/l4s-l4steam-6.12.y.zip]
+- Linux 6.18:
+    - Linux: [minuscat/l4steam-6.18.y at testing-net-next39](https://github.com/minuscat/l4steam-6.18.y/tree/testing-net-next39), prebuild zip at [https://github.com/minuscat/l4steam-6.18.y/releases/tag/testing-net-next39-build]
+    - RPI Linux: [minuscat/rpi-6.18.y at rpi-6.18.y-net-next39](https://github.com/minuscat/rpi-6.18.y/tree/rpi-6.18.y-net-next39), prebuild zip at [https://github.com/minuscat/rpi-6.18.y/actions/runs/30263174648/artifacts/8652382129]
+    - use the patched iproute2 6.15: [minuscat/iproute2 at iproute2_6.15](https://github.com/minuscat/iproute2/tree/iproute2_6.15)
 - Latest Net-dev mainline synced (source for mainlining and updated very frequently):
     - Linux net-next: [L4STeam/linux-net-next](https://github.com/l4steam/linux-net-next), prebuild zip at [https://github.com/L4STeam/linux-net-next/releases/download/upstream_l4steam-build/l4s-upstream_l4steam.zip]
 
 At this time, the mainlining status is:
 - DualPI2 is part of mainline Linux from 6.17 onwards.
-- ACC-ECN is partly delivered (2/3th) in 6.18, but cannot be used yet, before all parts are complete.
-- TCP-Prague is waiting for ACC-ECN to be completed, but check out our [UDP-Prague](https://github.com/L4STeam/udp_prague/) repo for adding Prague to your UDP based apps. Just use prague_cc.h/cpp that define the PragueCC class that has no dependencies (besides C++ compilation). The rest are example apps are compilable on all major OSs (Linux, Apple, Unix and Windows). Also check the udpsocket.c/cpp that defines the UDPSocket class to send and receive ECN for IPv4 and IPv6 on the different OSs. 
+- ACC-ECN is delivered in 6.20, but be careful with virtio which needs still some fixes for removing or negotiating-out correctly the old RFC3168 style TSO segmentation rules (keep a single packet with CWR flag set on segmentation, while ACC-ECN needs to preserve all 3 ACE flag bits as is and should not aggregate if the bits are different).
+- Virtio is stuck, where Linux kernel want first that the Virtio doc is updated and Virtio wants to have Linux kernel first updated... Fortunatly, some drivers have been updated removing the old RFC3168 code processing rules.
+- TCP-Prague mainlining is started.
+
+Also check out our [UDP-Prague](https://github.com/L4STeam/udp_prague/) repo for adding Prague to your UDP based apps. Just use prague_cc.h/cpp that define the PragueCC class that has no dependencies (besides C++ compilation). The rest are example apps are compilable on all major OSs (Linux, Apple, Unix and Windows). Also check the udpsocket.c/cpp that defines the UDPSocket class to send and receive ECN for IPv4 and IPv6 on the different OSs. 
 
 # Linux kernel tree with L4S patches
 
